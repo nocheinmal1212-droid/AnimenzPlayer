@@ -23,14 +23,47 @@ struct AnimenzPlayerApp: App {
 
 #if os(macOS)
 
-/// Playback commands for the macOS menu bar. Standard Mac shortcuts:
-/// Space toggles play/pause, arrows for prev/next, ⌘⇧R for repeat, etc.
+/// Playback commands for the macOS menu bar.
 ///
-/// Note: Space is a valid SwiftUI shortcut but conflicts with any focused
-/// text field. If the user is typing in the search box, space inserts a
-/// space — correct behavior. When no field is focused, it toggles playback.
+/// Shortcut choices
+/// ----------------
+/// Several "obvious" shortcuts conflict with standard macOS view behavior
+/// and must be avoided:
+///
+/// - `⌘ ←` / `⌘ →` are intercepted by `List` and text fields for
+///   beginning/end-of-line navigation. Picking them for skip silently does
+///   nothing when the list has focus.
+/// - `⌘ L` is used by many sidebar-driven apps and, more importantly, by
+///   `TextField` for "go to end of line"; it gets swallowed by the search
+///   box even when the field isn't visually focused.
+///
+/// The choices below use `⌥⌘` modifiers, which no system view claims:
+///
+/// | Action              | Shortcut   |
+/// | ------------------- | ---------- |
+/// | Play / Pause        | Space      |
+/// | Next track          | ⌥⌘ →       |
+/// | Previous track      | ⌥⌘ ←       |
+/// | Shuffle             | ⇧⌘ S       |
+/// | Cycle repeat mode   | ⇧⌘ R       |
+/// | Toggle favorite     | ⇧⌘ L       |
+///
+/// Buttons are *always* present (disabled when there's no current track)
+/// rather than conditionally inserted. SwiftUI re-registers shortcuts
+/// whenever the command tree changes; conditional buttons cause the
+/// shortcut to flicker off and on and can fail to fire depending on
+/// timing. Unconditional + `.disabled` is the reliable pattern.
 struct PlaybackCommands: Commands {
     @ObservedObject var player: PlayerViewModel
+
+    private var favoriteTitle: String {
+        guard let track = player.currentTrack else {
+            return "Add to Favorites"
+        }
+        return player.isFavorite(track)
+            ? "Remove from Favorites"
+            : "Add to Favorites"
+    }
 
     var body: some Commands {
         CommandMenu("Playback") {
@@ -40,10 +73,10 @@ struct PlaybackCommands: Commands {
             .keyboardShortcut(.space, modifiers: [])
 
             Button("Next Track") { player.next() }
-                .keyboardShortcut(.rightArrow, modifiers: [.command])
+                .keyboardShortcut(.rightArrow, modifiers: [.option, .command])
 
             Button("Previous Track") { player.previous() }
-                .keyboardShortcut(.leftArrow, modifiers: [.command])
+                .keyboardShortcut(.leftArrow, modifiers: [.option, .command])
 
             Divider()
 
@@ -55,16 +88,13 @@ struct PlaybackCommands: Commands {
 
             Divider()
 
-            if let track = player.currentTrack {
-                Button(
-                    player.isFavorite(track)
-                        ? "Remove from Favorites"
-                        : "Add to Favorites"
-                ) {
+            Button(favoriteTitle) {
+                if let track = player.currentTrack {
                     player.toggleFavorite(track)
                 }
-                .keyboardShortcut("l", modifiers: [.command])
             }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(player.currentTrack == nil)
         }
     }
 }

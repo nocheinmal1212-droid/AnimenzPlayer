@@ -156,25 +156,11 @@ struct PlayerBarView: View {
     @ViewBuilder
     private var progressSlider: some View {
         if player.duration > 0 {
-            VStack(spacing: 4) {
-                Slider(
-                    value: Binding(
-                        get: { player.progress },
-                        set: { player.seek(to: $0) }
-                    ),
-                    in: 0...max(player.duration, 0.01)
-                )
-                .tint(.primary.opacity(0.75))
-                .accessibilityLabel("Playback position")
-
-                HStack {
-                    Text(formatTime(player.progress))
-                    Spacer()
-                    Text(formatTime(player.duration))
-                }
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-            }
+            ScrubberSlider(
+                progress: player.progress,
+                duration: player.duration,
+                onCommit: { player.seek(to: $0) }
+            )
         }
     }
 

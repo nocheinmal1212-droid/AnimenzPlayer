@@ -3,6 +3,7 @@ import SwiftUI
 struct PlayerBarView: View {
     @EnvironmentObject var player: PlayerViewModel
     @State private var artwork: PlatformImage?
+    @State private var showSleepTimerSheet = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -10,6 +11,7 @@ struct PlayerBarView: View {
                 .shadow(color: .black.opacity(0.3), radius: 18, y: 8)
 
             nowPlayingTitle
+            sleepTimerStrip
             progressSlider
             controlButtons
         }
@@ -21,6 +23,10 @@ struct PlayerBarView: View {
         .overlay(alignment: .top) { topDivider }    // hairline separator from the list
         .task(id: player.currentTrack?.id) {
             await loadArtwork()
+        }
+        .sheet(isPresented: $showSleepTimerSheet) {
+            SleepTimerSheet()
+                .environmentObject(player)
         }
     }
 
@@ -62,16 +68,88 @@ struct PlayerBarView: View {
 
     // MARK: - Subviews
 
+    /// Title + "Now playing" caption, with a heart to the right that toggles
+    /// favorite. Symmetric spacer on the left keeps the title optically centered.
     private var nowPlayingTitle: some View {
-        VStack(spacing: 3) {
-            Text(player.currentTrack?.title ?? "")
-                .font(.headline)
-                .lineLimit(1)
-            Text(player.isPlaying ? "Now playing" : "Paused")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
+        HStack(spacing: 8) {
+            Color.clear.frame(width: 28, height: 28)
+
+            VStack(spacing: 3) {
+                Text(player.currentTrack?.title ?? "")
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(player.isPlaying ? "Now playing" : "Paused")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+            }
+            .frame(maxWidth: .infinity)
+
+            if let track = player.currentTrack {
+                Button {
+                    player.toggleFavorite(track)
+                } label: {
+                    Image(systemName: player.isFavorite(track) ? "heart.fill" : "heart")
+                        .foregroundStyle(
+                            player.isFavorite(track)
+                                ? Color.pink
+                                : Color.primary.opacity(0.75)
+                        )
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    player.isFavorite(track) ? "Remove from favorites" : "Add to favorites"
+                )
+            } else {
+                Color.clear.frame(width: 28, height: 28)
+            }
+        }
+    }
+
+    /// Compact countdown strip shown only when a sleep timer is active.
+    @ViewBuilder
+    private var sleepTimerStrip: some View {
+        if player.sleepTimer.mode != nil {
+            HStack(spacing: 8) {
+                Image(systemName: "moon.zzz.fill")
+                    .font(.caption)
+
+                Text(sleepTimerLabel)
+                    .font(.caption.monospacedDigit())
+
+                Spacer()
+
+                Button {
+                    player.cancelSleepTimer()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Cancel sleep timer")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(0.08))
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
+    private var sleepTimerLabel: String {
+        guard let mode = player.sleepTimer.mode else { return "" }
+        switch mode {
+        case .endOfTrack:
+            return "Until end of track"
+        case .duration:
+            let r = max(0, Int(player.sleepTimer.remaining))
+            let m = r / 60
+            let s = r % 60
+            return String(format: "Sleep in %d:%02d", m, s)
         }
     }
 
@@ -100,41 +178,71 @@ struct PlayerBarView: View {
         }
     }
 
-    /// Transport trio centered via HStack inside a ZStack; shuffle sits on the
-    /// leading edge in an overlay. The play button stays on the optical center.
+    /// Transport controls. Layout: [shuffle] [←] [⏯] [→] [repeat].
+    /// Shuffle and repeat flank the transport trio symmetrically. Each button
+    /// gets `frame(maxWidth: .infinity)` so they divide available width evenly.
     private var controlButtons: some View {
-        ZStack {
-            HStack(spacing: 32) {
-                Button { player.previous() } label: {
-                    Image(systemName: "backward.fill")
-                }
-                .accessibilityLabel("Previous track")
-
-                Button { player.togglePlayPause() } label: {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 48))
-                        .symbolRenderingMode(.hierarchical)
-                }
-                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-
-                Button { player.next() } label: {
-                    Image(systemName: "forward.fill")
-                }
-                .accessibilityLabel("Next track")
+        HStack(spacing: 0) {
+            Button { player.isShuffled.toggle() } label: {
+                Image(systemName: "shuffle")
+                    .foregroundStyle(
+                        player.isShuffled ? Color.accentColor : Color.primary.opacity(0.75)
+                    )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(player.isShuffled ? "Shuffle on" : "Shuffle off")
+            .frame(maxWidth: .infinity)
 
-            HStack {
-                Button { player.isShuffled.toggle() } label: {
-                    Image(systemName: "shuffle")
-                        .foregroundStyle(
-                            player.isShuffled ? Color.accentColor : Color.primary.opacity(0.75)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(player.isShuffled ? "Shuffle on" : "Shuffle off")
-                Spacer()
+            Button {
+                player.previous()
+                Haptics.play(.impactSoft)
+            } label: {
+                Image(systemName: "backward.fill")
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Previous track")
+            .frame(maxWidth: .infinity)
+
+            Button { player.togglePlayPause() } label: {
+                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 48))
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+            .frame(maxWidth: .infinity)
+
+            Button {
+                player.next()
+                Haptics.play(.impactSoft)
+            } label: {
+                Image(systemName: "forward.fill")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Next track")
+            .frame(maxWidth: .infinity)
+
+            Button {
+                player.cycleRepeatMode()
+                Haptics.play(.selection)
+            } label: {
+                Image(systemName: player.repeatMode.systemImageName)
+                    .foregroundStyle(
+                        player.repeatMode.isActive
+                            ? Color.accentColor
+                            : Color.primary.opacity(0.75)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Repeat mode: \(player.repeatMode.rawValue)")
+            .contextMenu {
+                Button("Off") { player.repeatMode = .off }
+                Button("Repeat All") { player.repeatMode = .all }
+                Button("Repeat One") { player.repeatMode = .one }
+                Divider()
+                Button("Sleep Timer…") { showSleepTimerSheet = true }
+            }
+            .frame(maxWidth: .infinity)
         }
         .font(.title2)
     }

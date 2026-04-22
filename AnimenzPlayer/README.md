@@ -2,20 +2,23 @@
 
 A minimal, cross-platform (iOS / macOS) SwiftUI music player for a local library of piano-cover audio files produced by [`yt-dlp`](https://github.com/yt-dlp/yt-dlp). The app scans a bundled `Music/` folder, parses track numbers and titles from `yt-dlp`'s default filename template, surfaces sidecar or embedded artwork, and plays tracks back with shuffle, seek, and continuous-play support.
 
-This repository currently reflects the **Wave 1** state of the improvement roadmap: a foundational refactor that splits the old monolithic view model into testable collaborators, replaces `AVAudioPlayer` with `AVPlayer`, introduces disk persistence for last-played state, and fixes several smaller issues around artwork caching, search, and error surfacing.
+This repository reflects the **Wave 2** state of the improvement roadmap: Wave 1's foundational refactor (testable collaborators, `AVPlayer`-based engine, disk persistence) plus Wave 2's platform integration and user-facing features — repeat modes, favorites, recently-played, a sleep timer, Lock Screen / Control Center controls with interruption handling, and macOS keyboard shortcuts.
 
 ---
 
 ## Table of contents
 
 1. [Requirements](#requirements)
-2. [Project layout](#project-layout)
-3. [Architecture](#architecture)
-4. [Building and running](#building-and-running)
-5. [Adding music](#adding-music)
-6. [Testing](#testing)
-7. [Troubleshooting](#troubleshooting)
-8. [Roadmap](#roadmap)
+2. [Features](#features)
+3. [Project layout](#project-layout)
+4. [Architecture](#architecture)
+5. [Building and running](#building-and-running)
+6. [iOS: enabling background audio](#ios-enabling-background-audio)
+7. [Adding music](#adding-music)
+8. [Keyboard shortcuts (macOS)](#keyboard-shortcuts-macos)
+9. [Testing](#testing)
+10. [Troubleshooting](#troubleshooting)
+11. [Roadmap](#roadmap)
 
 ---
 
@@ -33,36 +36,63 @@ The project relies on `AVFoundation`'s async metadata API (`AVAsset.load(.common
 
 ---
 
+## Features
+
+**Core playback** (Wave 1):
+- Bundled-library scanning with `yt-dlp` filename conventions.
+- Shuffle, seek, continuous play across tracks.
+- Sidecar and embedded-metadata artwork, cached and downsampled.
+- Last-played track and position restored across launches.
+
+**Platform & UX** (Wave 2):
+- **Now Playing integration** — lock screen, Control Center, Apple Watch, AirPods double-tap, macOS media keys all work via `MPRemoteCommandCenter`.
+- **Repeat modes** — off / all / one, cycled from the player bar (off → all → one → off). Persisted.
+- **Favorites** — tap the heart on any track or in the player bar. Filter the list to favorites-only from the nav bar.
+- **Recently Played** — last 50 tracks, newest first, deduplicated. Filterable from the nav bar.
+- **Sleep timer** — 5 / 15 / 30 / 60 min, or "until end of current track". Sleep-timer expiration beats repeat mode: if you set end-of-track, the app stops even when repeat all is on.
+- **Interruption handling** (iOS) — pauses on phone calls and Siri, auto-resumes when the system signals `shouldResume`.
+- **macOS keyboard shortcuts** — see [Keyboard shortcuts](#keyboard-shortcuts-macos) below.
+- **Light haptics** (iOS) — selection ticks on track tap, soft impacts on skip.
+
+---
+
 ## Project layout
 
 ```
 AnimenzPlayer/                       Xcode project root
 ├── AnimenzPlayer/                   Main app target
 │   ├── App/
-│   │   └── AnimenzPlayerApp.swift        @main entry point
+│   │   └── AnimenzPlayerApp.swift        @main entry point + macOS commands
 │   ├── Models/
 │   │   ├── Track.swift                   Track value type
-│   │   └── PlayerError.swift             Typed user-facing errors
+│   │   ├── PlayerError.swift             Typed user-facing errors
+│   │   └── RepeatMode.swift              off / all / one (Wave 2)
 │   ├── Services/
 │   │   ├── PlaybackEngine.swift          Protocol + AVPlayer implementation
 │   │   ├── PlayQueue.swift               Pure value-type queue
 │   │   ├── LibraryStore.swift            Track discovery
 │   │   ├── PersistenceStore.swift        Debounced JSON state store
-│   │   └── ArtworkCache.swift            ImageIO downsampling + NSCache
+│   │   ├── ArtworkCache.swift            ImageIO downsampling + NSCache
+│   │   ├── NowPlayingController.swift    MediaPlayer + iOS interruptions (Wave 2)
+│   │   ├── SleepTimer.swift              Duration / end-of-track timer (Wave 2)
+│   │   └── Haptics.swift                 iOS haptic wrapper (Wave 2)
 │   ├── ViewModels/
 │   │   └── PlayerViewModel.swift         Thin coordinator (@MainActor)
 │   ├── Views/
-│   │   ├── ContentView.swift             Root
-│   │   ├── TrackListView.swift           List with search
-│   │   ├── PlayerBarView.swift           Bottom player
+│   │   ├── ContentView.swift             Root + filter picker (Wave 2)
+│   │   ├── TrackListView.swift           List with search + favorite menu
+│   │   ├── PlayerBarView.swift           Bottom player with heart/repeat (Wave 2)
+│   │   ├── SleepTimerSheet.swift         Preset picker (Wave 2)
 │   │   ├── ArtworkView.swift             Cross-platform artwork view
 │   │   └── ErrorBanner.swift             Non-blocking error UI
 │   └── Music/                            (Folder reference — see Adding music)
 │
 └── AnimenzPlayerTests/              Test target
     ├── Mocks.swift                       MockPlaybackEngine + fixtures
-    ├── PlayQueueTests.swift              Queue logic
-    └── PlayerViewModelTests.swift        Coordinator logic
+    ├── PlayQueueTests.swift              Queue logic (+ Wave 2 cases)
+    ├── PlayerViewModelTests.swift        Coordinator logic (+ Wave 2 cases)
+    ├── RepeatModeTests.swift             (Wave 2)
+    └── SleepTimerTests.swift             (Wave 2)
 ```
 
 In Xcode, the subfolders under `AnimenzPlayer/` correspond 1:1 to Groups in the Project Navigator. If you're on Xcode 15+ with a new project, groups synchronize with folders on disk automatically; on older / customized projects you may need to create the groups manually and drag files in.
@@ -136,6 +166,24 @@ The first launch will show the empty state until you add music (next section).
 
 ---
 
+## iOS: enabling background audio
+
+For Now Playing, Lock Screen controls, and continued playback when the screen is locked to work on iOS, the app needs the **Audio, AirPlay, and Picture in Picture** background mode. This is a one-time Xcode setup:
+
+1. Select the project in the Xcode navigator.
+2. Select the **AnimenzPlayer** target.
+3. Open the **Signing & Capabilities** tab.
+4. Click **+ Capability** and add **Background Modes**.
+5. In the Background Modes section that appears, check **Audio, AirPlay, and Picture in Picture**.
+
+This adds `UIBackgroundModes = [audio]` to `Info.plist`. Without it, iOS will suspend the app when the screen locks and playback will stop.
+
+`AVAudioSession.setCategory(.playback)` is already called inside `AVPlayerEngine` on iOS at startup, so no further code changes are needed.
+
+On macOS there is no equivalent setting — the app plays in the background automatically.
+
+---
+
 ## Adding music
 
 The app looks for audio in two places, in order:
@@ -154,6 +202,25 @@ Recognized extensions: `m4a`, `mp3`, `aac`, `wav`, `flac`, `aiff`, `caf`.
 5. Confirm the `Music` folder is checked for the `AnimenzPlayer` target membership.
 
 If no `Music` folder reference exists, the app will scan the bundle root, which is useful for quick experiments with a few files added directly to the target.
+
+---
+
+## Keyboard shortcuts (macOS)
+
+Available from the **Playback** menu in the menu bar.
+
+| Action                  | Shortcut         |
+| ----------------------- | ---------------- |
+| Play / Pause            | Space            |
+| Next track              | ⌘ →              |
+| Previous track          | ⌘ ←              |
+| Toggle shuffle          | ⇧⌘ S             |
+| Cycle repeat mode       | ⇧⌘ R             |
+| Toggle favorite         | ⌘ L              |
+
+Space toggles playback only when no text field is focused — when the search box or any other input has focus, Space inserts a space character as expected.
+
+On iOS the same actions are accessible via the player bar and the context menu on the repeat button (which also contains the Sleep Timer… entry).
 
 ---
 
@@ -224,9 +291,10 @@ These are set automatically when Xcode creates the test target via File → New 
 
 ## Roadmap
 
-Wave 1 (done) established the architectural foundation. Waves 2–4 are tracked in `PLAN.md` (or the chat history this was developed in) and cover:
+Waves 1 and 2 are complete. Waves 3 and 4 remain:
 
-- **Wave 2:** `MPNowPlayingInfoCenter` / remote controls, background audio, repeat modes, sleep timer, favorites, macOS keyboard shortcuts.
+- **Wave 1 (done):** Foundational refactor — thin coordinator, `AVPlayer`-backed engine, value-type queue, JSON persistence, error surface, cache improvements.
+- **Wave 2 (done):** `MPNowPlayingInfoCenter` / remote controls, iOS interruption handling + background audio, repeat modes, sleep timer, favorites, recently-played, macOS keyboard shortcuts, iOS haptics.
 - **Wave 3:** Show/album grouping derived from track titles, user playlists, smart playlists, sidebar navigation.
 - **Wave 4:** Expandable full-screen player with matched-geometry artwork transitions, waveform scrubber, ambient animation.
 

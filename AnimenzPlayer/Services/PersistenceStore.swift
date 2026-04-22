@@ -13,11 +13,20 @@ import Combine
 @MainActor
 final class PersistenceStore: ObservableObject {
     struct State: Codable, Equatable {
+        // MARK: Wave 1
         var lastTrackURL: URL?
         var lastPosition: Double = 0
         var isShuffled: Bool = false
 
-        // Room to grow: favorites, repeatMode, playCounts, playlists…
+        // MARK: Wave 2
+        /// Repeat mode. Defaulted to `.off` so old state files decode.
+        var repeatMode: RepeatMode = .off
+        /// URLs the user has hearted. Stored as Set for O(1) membership;
+        /// Codable handles Set<URL> natively.
+        var favorites: Set<URL> = []
+        /// Most-recently-played track URLs, newest first. Capped — see
+        /// `PlayerViewModel.recordPlay(_:)`.
+        var recentlyPlayed: [URL] = []
     }
 
     @Published private(set) var state: State

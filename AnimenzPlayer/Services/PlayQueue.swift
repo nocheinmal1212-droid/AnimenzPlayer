@@ -68,6 +68,44 @@ struct PlayQueue: Equatable {
         return current
     }
 
+    // MARK: - Wave 2 — Repeat-aware advance
+
+    /// Result of a natural "track finished" event, given a repeat mode.
+    enum FinishOutcome: Equatable {
+        /// Play a new track (could be the same one on `.one`, or a wrap on `.all`).
+        case play(Track)
+        /// Stop playback. Happens on `.off` when the last track finishes.
+        case stop
+    }
+
+    /// Advances the queue per `repeatMode` and returns what the player should
+    /// do. Unlike `advance()` which is used by the user's "next" intent and
+    /// always wraps, this encodes the subtler rules for automatic advancement
+    /// at end-of-track:
+    ///
+    /// - `.off`: advance, but stop at the end rather than wrapping.
+    /// - `.all`: advance, wrapping to the first track.
+    /// - `.one`: stay on the current track.
+    mutating func advanceForFinish(repeatMode: RepeatMode) -> FinishOutcome {
+        guard !isEmpty else { return .stop }
+
+        switch repeatMode {
+        case .one:
+            guard let t = current else { return .stop }
+            return .play(t)
+
+        case .all:
+            position = (position + 1) % orderedIndices.count
+            return current.map(FinishOutcome.play) ?? .stop
+
+        case .off:
+            let isLast = position == orderedIndices.count - 1
+            if isLast { return .stop }
+            position += 1
+            return current.map(FinishOutcome.play) ?? .stop
+        }
+    }
+
     // MARK: - Private
 
     private mutating func rebuildOrder(preservingCurrent track: Track?) {

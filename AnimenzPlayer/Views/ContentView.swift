@@ -1,22 +1,57 @@
 import SwiftUI
 
+/// Top-level view. Hosts the track list, player bar, error banner, and
+/// (Wave 2) a filter picker to switch between All / Favorites / Recently
+/// Played.
 struct ContentView: View {
     @EnvironmentObject var player: PlayerViewModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var searchText = ""
 
+    // MARK: - Wave 2 state
+
+    enum ListFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case favorites = "Favorites"
+        case recent = "Recent"
+        var id: String { rawValue }
+
+        var systemImage: String {
+            switch self {
+            case .all:       return "music.note.list"
+            case .favorites: return "heart.fill"
+            case .recent:    return "clock.fill"
+            }
+        }
+    }
+
+    @State private var filter: ListFilter = .all
+
+    // MARK: - Derived
+
+    /// The tracks to display, after filter + search.
     private var filteredTracks: [Track] {
-        guard !searchText.isEmpty else { return player.tracks }
-        return player.tracks.filter {
+        let base: [Track]
+        switch filter {
+        case .all:       base = player.tracks
+        case .favorites: base = player.favoriteTracks
+        case .recent:    base = player.recentlyPlayedTracks
+        }
+        guard !searchText.isEmpty else { return base }
+        return base.filter {
             $0.title.localizedCaseInsensitiveContains(searchText)
         }
     }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
             Group {
                 if player.tracks.isEmpty {
                     emptyState
+                } else if filteredTracks.isEmpty {
+                    filterEmptyState
                 } else {
                     TrackListView(tracks: filteredTracks, searchText: $searchText)
                 }
@@ -25,6 +60,11 @@ struct ContentView: View {
             #if os(macOS)
             .navigationSubtitle(player.currentTrack?.title ?? "")
             #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    filterPicker
+                }
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if player.currentTrack != nil {
@@ -59,6 +99,22 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Subviews
+
+    /// Segmented picker for the list filter. Iconified to keep it compact
+    /// in the nav bar on iOS.
+    private var filterPicker: some View {
+        Picker("Filter", selection: $filter) {
+            ForEach(ListFilter.allCases) { option in
+                Label(option.rawValue, systemImage: option.systemImage)
+                    .tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "music.note.list")
@@ -73,6 +129,40 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    /// Shown when the current filter returns no tracks but the library
+    /// itself has tracks. Different copy per filter because the remedy differs.
+    private var filterEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: filter.systemImage)
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text(filterEmptyTitle)
+                .font(.headline)
+            Text(filterEmptyMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    private var filterEmptyTitle: String {
+        switch filter {
+        case .all:       return "No tracks match"
+        case .favorites: return "No favorites yet"
+        case .recent:    return "Nothing played yet"
+        }
+    }
+
+    private var filterEmptyMessage: String {
+        switch filter {
+        case .all:       return "Try a different search term."
+        case .favorites: return "Tap the heart on any track to add it to favorites."
+        case .recent:    return "Play a track and it'll show up here."
+        }
     }
 }
 

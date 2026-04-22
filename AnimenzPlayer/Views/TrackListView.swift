@@ -14,7 +14,10 @@ struct TrackListView: View {
         }
         #if os(iOS)
         .listStyle(.plain)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always)
+        )
         #else
         .searchable(text: $searchText)
         #endif
@@ -48,11 +51,14 @@ private struct TrackRow: View {
                 Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "pause.fill")
                     .foregroundStyle(Color.accentColor)
                     .font(.caption)
+                    .accessibilityLabel(player.isPlaying ? "Now playing" : "Paused")
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
         .task(id: track.id) {
-            artwork = await ArtworkCache.image(for: track)
+            artwork = await ArtworkCache.image(for: track, size: .thumbnail)
         }
     }
 }

@@ -87,6 +87,7 @@ struct PlayerBarView: View {
                     in: 0...max(player.duration, 0.01)
                 )
                 .tint(.primary.opacity(0.75))
+                .accessibilityLabel("Playback position")
 
                 HStack {
                     Text(formatTime(player.progress))
@@ -107,14 +108,19 @@ struct PlayerBarView: View {
                 Button { player.previous() } label: {
                     Image(systemName: "backward.fill")
                 }
+                .accessibilityLabel("Previous track")
+
                 Button { player.togglePlayPause() } label: {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 48))
                         .symbolRenderingMode(.hierarchical)
                 }
+                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+
                 Button { player.next() } label: {
                     Image(systemName: "forward.fill")
                 }
+                .accessibilityLabel("Next track")
             }
             .buttonStyle(.plain)
 
@@ -126,6 +132,7 @@ struct PlayerBarView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(player.isShuffled ? "Shuffle on" : "Shuffle off")
                 Spacer()
             }
         }
@@ -138,7 +145,7 @@ struct PlayerBarView: View {
     private func loadArtwork() async {
         artwork = nil
         guard let track = player.currentTrack else { return }
-        let loaded = await ArtworkCache.image(for: track)
+        let loaded = await ArtworkCache.image(for: track, size: .full)
         // Guard against a race where the user skipped to another track while loading.
         guard player.currentTrack?.id == track.id else { return }
         artwork = loaded
@@ -156,5 +163,9 @@ struct PlayerBarView: View {
 
 #Preview {
     PlayerBarView()
-        .environmentObject(PlayerViewModel())
+        .environmentObject(PlayerViewModel(
+            library: LibraryStore(autoload: false),
+            engine: AVPlayerEngine(),
+            persistence: PersistenceStore(fileURL: nil)
+        ))
 }

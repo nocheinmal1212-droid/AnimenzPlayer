@@ -1,8 +1,8 @@
 # Animenz Player
 
-A minimal, cross-platform (iOS / macOS) SwiftUI music player for a local library of piano-cover audio files produced by [`yt-dlp`](https://github.com/yt-dlp/yt-dlp). The app scans a bundled `Music/` folder, parses track numbers and titles from `yt-dlp`'s default filename template, surfaces sidecar or embedded artwork, and plays tracks back with shuffle, seek, and continuous-play support.
-
-This repository reflects the **Wave 3** state of the improvement roadmap: Waves 1 and 2 (foundational refactor, Now Playing integration, repeat modes, sleep timer, favorites) plus Wave 3's **search-first browsing** — alias-aware search, playback scoped to search results, and an optional themed ambient background when the search resolves to a known show.
+A minimal, cross-platform (iOS / macOS) SwiftUI music player for a local library of piano-cover audio files produced by yt-dlp. The app scans a bundled Music/ folder, parses track numbers and titles from yt-dlp's default filename template, surfaces sidecar or embedded artwork, and plays tracks back with shuffle, repeat, sleep-timer, and continuous-play support. Lock Screen, Control Center, media keys, and AirPods gestures all work on day one through MPNowPlayingInfoCenter.
+The browsing model is search-first rather than album-based. The search box understands acronyms and aliases — typing AOT surfaces every Attack on Titan track, JJK every Jujutsu Kaisen track, and first-letter acronyms reach shows outside the curated table. Playing a track from a search captures those results as the active play queue, so shuffle, next, and previous cycle within the searched scope until the scope is explicitly cleared — the search box and the scope are independent, letting you keep listening to one show while browsing for another. When the scope resolves to a known show, the window picks up a subtle blurred backdrop derived from that show's artwork.
+Planned for upcoming waves: an expandable full-screen player with matched-geometry artwork transitions and a waveform scrubber (Wave 4), plus audio enhancements via on-device ML (denoising, timbre transfer, upmix) and MIDI support for driving / being driven by external devices and for exporting the piano covers' transcribed notes.
 
 ---
 

@@ -1,30 +1,18 @@
 import SwiftUI
 
-/// Playback scrubber that decouples the thumb from engine updates while the
-/// user is dragging. The scrubber has two modes:
-///
-/// - **Idle**: the thumb tracks `progress` live (so it advances during
-///   playback).
-/// - **Dragging**: the thumb follows the user's input only. Engine-driven
-///   `progress` updates don't move it, and no seek is issued. When the user
-///   releases, we commit one seek via `onCommit`.
-///
-/// This fixes two bugs in the naive `Slider(value: Binding(get:set:))`
-/// approach: (1) the thumb snapping back during drag because the engine's
-/// progress stream kept overwriting it, and (2) the audio stuttering because
-/// every drag delta fired a sample-accurate AVPlayer seek.
+/// Playback scrubber. Decouples the thumb from engine updates while the
+/// user is dragging, and smooths 4 Hz engine ticks into continuous motion
+/// with a linear implicit animation between updates.
 struct ScrubberSlider: View {
-    let progress: Double
+    @ObservedObject var progressModel: PlaybackProgressModel
     let duration: Double
     let onCommit: (Double) -> Void
 
     /// Thumb position while the user is dragging. `nil` when idle.
     @State private var dragValue: Double?
 
-    /// The value the slider displays. During drag this is `dragValue`;
-    /// otherwise it's the live engine `progress`. Clamped to the valid range.
     private var visibleValue: Double {
-        let v = dragValue ?? progress
+        let v = dragValue ?? progressModel.progress
         return min(max(v, 0), max(duration, 0.01))
     }
 
@@ -33,17 +21,11 @@ struct ScrubberSlider: View {
             Slider(
                 value: Binding(
                     get: { visibleValue },
-                    set: { newValue in
-                        // Only update local drag state here; don't touch the
-                        // engine until the drag ends.
-                        dragValue = newValue
-                    }
+                    set: { dragValue = $0 }
                 ),
                 in: 0...max(duration, 0.01),
                 onEditingChanged: { editing in
                     if !editing {
-                        // Drag released — commit the seek and release the
-                        // thumb back to engine-driven updates.
                         if let final = dragValue {
                             onCommit(final)
                         }
@@ -53,6 +35,15 @@ struct ScrubberSlider: View {
             )
             .tint(.primary.opacity(0.75))
             .accessibilityLabel("Playback position")
+            // The engine publishes progress at 4 Hz. Without this, the
+            // thumb jumps ~0.25 s of distance per tick (teleport). A
+            // linear animation matching the tick interval turns the four
+            // discrete jumps into continuous motion. Disabled while
+            // dragging so user input stays 1:1 with the finger.
+            .animation(
+                dragValue == nil ? .linear(duration: 0.25) : nil,
+                value: progressModel.progress
+            )
 
             HStack {
                 Text(formatTime(visibleValue))

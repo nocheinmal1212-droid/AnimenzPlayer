@@ -157,7 +157,7 @@ struct PlayerBarView: View {
     private var progressSlider: some View {
         if player.duration > 0 {
             ScrubberSlider(
-                progress: player.progress,
+                progressModel: player.progressModel,
                 duration: player.duration,
                 onCommit: { player.seek(to: $0) }
             )

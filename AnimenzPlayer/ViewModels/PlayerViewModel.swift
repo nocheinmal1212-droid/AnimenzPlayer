@@ -12,7 +12,6 @@ final class PlayerViewModel: ObservableObject {
 
     @Published private(set) var currentTrack: Track?
     @Published private(set) var isPlaying: Bool = false
-    @Published private(set) var progress: Double = 0
     @Published private(set) var duration: Double = 0
     @Published var currentError: PlayerError?
 
@@ -25,6 +24,19 @@ final class PlayerViewModel: ObservableObject {
     }
 
     var tracks: [Track] { library.tracks }
+    
+    /// Playback progress carrier. Kept on a dedicated observable so 4 Hz
+    /// engine ticks don't invalidate every view that observes `self`.
+    /// See `PlaybackProgressModel` for rationale.
+    let progressModel = PlaybackProgressModel()
+
+    /// Read-only forwarder for existing call sites (tests, persistence,
+    /// `previous()`'s "restart if >3s in" check). Writes must go through
+    /// `progressModel.progress` directly so SwiftUI subscribes correctly.
+    var progress: Double {
+        get { progressModel.progress }
+        set { progressModel.progress = newValue }
+    }
 
     // MARK: - Wave 2 state
 
@@ -156,7 +168,7 @@ final class PlayerViewModel: ObservableObject {
         // iOS Music and the original app's behavior.
         if progress > 3 {
             Task { await engine.seek(to: 0) }
-            progress = 0
+            progressModel.progress = 0              // was: progress = 0
             return
         }
         guard let track = queue.retreat() else { return }
@@ -164,9 +176,7 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func seek(to time: Double) {
-        // Update the local progress optimistically so the slider feels glued
-        // to the thumb; the real seek lands a moment later.
-        progress = time
+        progressModel.progress = time           // was: progress = time
         Task { await engine.seek(to: time) }
     }
 
@@ -264,7 +274,7 @@ final class PlayerViewModel: ObservableObject {
     private func bindEngine() {
         engine.onTimeChange = { [weak self] time in
             guard let self else { return }
-            self.progress = time
+            self.progressModel.progress = time     // was: self.progress = time
             self.persistPositionIfDue(time)
         }
         engine.onDurationChange = { [weak self] dur in
@@ -348,7 +358,7 @@ final class PlayerViewModel: ObservableObject {
         // than sprinkling calls at every state-change site. Throttled to 1Hz
         // because the engine's time observer fires at 4Hz and Lock Screen
         // scrub accuracy doesn't benefit from more than once per second.
-        Publishers.CombineLatest($isPlaying, $progress)
+        Publishers.CombineLatest($isPlaying, progressModel.$progress)
             .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] playing, time in
                 self?.nowPlaying.updatePlaybackState(

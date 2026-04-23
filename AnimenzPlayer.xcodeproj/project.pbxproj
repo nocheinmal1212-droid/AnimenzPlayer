@@ -22,9 +22,19 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8A0ECF432F9A394E0053C4D5 /* Exceptions for "AnimenzPlayer" folder in "AnimenzPlayerTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				docs/updates/WAVE3_PLAN.md,
+				docs/updates/WAVE3_SUMMARY.md,
+			);
+			target = 8A0EC38C2F9894F30053C4D5 /* AnimenzPlayerTests */;
+		};
 		8AD8CED42F94DCEF007143C5 /* Exceptions for "AnimenzPlayer" folder in "AnimenzPlayer" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				docs/updates/WAVE3_PLAN.md,
+				docs/updates/WAVE3_SUMMARY.md,
 				Info.plist,
 			);
 			target = 8AD8CD6F2F94DC18007143C5 /* AnimenzPlayer */;
@@ -41,6 +51,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				8AD8CED42F94DCEF007143C5 /* Exceptions for "AnimenzPlayer" folder in "AnimenzPlayer" target */,
+				8A0ECF432F9A394E0053C4D5 /* Exceptions for "AnimenzPlayer" folder in "AnimenzPlayerTests" target */,
 			);
 			path = AnimenzPlayer;
 			sourceTree = "<group>";

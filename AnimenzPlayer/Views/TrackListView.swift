@@ -1,8 +1,10 @@
 import SwiftUI
 
+/// Track list. No longer owns `.searchable` — that modifier is hoisted to
+/// `ContentView`'s NavigationStack so the search field survives the list
+/// being swapped for an empty-state view. See the note in `ContentView.body`.
 struct TrackListView: View {
     let tracks: [Track]
-    @Binding var searchText: String
 
     /// The scope to apply when the user plays a track from this list. Owned
     /// by the parent (ContentView) because it depends on filter + search
@@ -38,17 +40,12 @@ struct TrackListView: View {
                     }
                 }
         }
-        // Let the ambient background show through when the surrounding
-        // ContentView has one. iOS 16+/macOS 13+.
+        // Let the ambient background show through when ContentView has one.
+        // iOS 16+/macOS 13+. Without this, List paints its own background
+        // and hides the AmbientBackground layer.
         .scrollContentBackground(.hidden)
         #if os(iOS)
         .listStyle(.plain)
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always)
-        )
-        #else
-        .searchable(text: $searchText)
         #endif
     }
 }

@@ -39,15 +39,13 @@ struct ContentView: View {
     }
 
     /// The tracks to display. Wave 3: search goes through `SearchEngine.rank`
-    /// so typing "AOT" returns Attack on Titan tracks, etc. Empty query =
-    /// baseTracks in their natural order.
+    /// so typing "AOT" returns Attack on Titan tracks, etc.
     private var filteredTracks: [Track] {
         SearchEngine.rank(searchText, in: baseTracks)
     }
 
-    /// The scope that should be captured when the user starts playback
-    /// right now. Rule: a non-empty search always wins (scope becomes
-    /// `.search`); otherwise it mirrors the filter picker.
+    /// The scope to capture when the user starts playback right now. A
+    /// non-empty search wins; otherwise it mirrors the filter picker.
     private var currentPlayScope: PlaybackScope {
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
@@ -63,53 +61,64 @@ struct ContentView: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            // Wave 3: themed ambient background behind everything. Renders
-            // nothing when scope doesn't resolve to a known show.
-            AmbientBackground(scope: player.currentScope, library: player.tracks)
-                .ignoresSafeArea()
-
-            NavigationStack {
-                Group {
-                    if player.tracks.isEmpty {
-                        emptyState
-                    } else if filteredTracks.isEmpty {
-                        filterEmptyState
-                    } else {
-                        TrackListView(
-                            tracks: filteredTracks,
-                            searchText: $searchText,
-                            scope: currentPlayScope
-                        )
-                    }
-                }
-                .navigationTitle("Animenz")
-                #if os(macOS)
-                .navigationSubtitle(player.currentTrack?.title ?? "")
-                #endif
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        filterPicker
-                    }
+        // Structure notes — three iterations of bugs, now fixed:
+        //
+        // Iteration 1 (broken):
+        //   Put `.searchable` on `TrackListView`. When search returned no
+        //   results, TrackListView was swapped out, `.searchable` went with
+        //   it, and on macOS the toolbar entered a state where the search
+        //   field vanished AND the filter picker stopped accepting clicks.
+        //
+        // Iteration 2 (broken differently):
+        //   Moved `.searchable` OUTSIDE the NavigationStack onto the outer
+        //   view chain. That fixed the empty-state tear-down, but on macOS
+        //   `.searchable` needs a navigation container to render into —
+        //   placed outside, the search field simply never appears.
+        //
+        // Iteration 3 (this version):
+        //   `.searchable` lives INSIDE the NavigationStack (so it has a
+        //   toolbar) but attached to a stable wrapper view — a ZStack
+        //   around the conditional content, which never unmounts. This is
+        //   the canonical SwiftUI pattern:
+        //
+        //     NavigationStack {
+        //       ZStack { if ... else ... }      ← stable host
+        //         .searchable(text: $text)      ← survives content swaps
+        //         .toolbar { ... }
+        //     }
+        //
+        // AmbientBackground is layered via `.background { ... }` on the
+        // NavigationStack so it paints beneath content without reshaping
+        // the layout tree (which, in an earlier attempt using a sibling
+        // ZStack + ignoresSafeArea, broke hit-testing and window chrome).
+        NavigationStack {
+            ZStack {
+                contentBody
+            }
+            #if os(iOS)
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always)
+            )
+            #else
+            .searchable(text: $searchText)
+            #endif
+            .navigationTitle("Animenz")
+            #if os(macOS)
+            .navigationSubtitle(player.currentTrack?.title ?? "")
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    filterPicker
                 }
             }
         }
+        .background {
+            AmbientBackground(scope: player.currentScope, library: player.tracks)
+                .ignoresSafeArea()
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 8) {
-                // Wave 3: scope indicator. Only meaningful when there's a
-                // track to play from scope, so we gate on currentTrack too.
-                if player.currentScope.isRestricted, player.currentTrack != nil {
-                    ScopeIndicator(scope: player.currentScope) {
-                        player.clearScope()
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
-                if player.currentTrack != nil {
-                    PlayerBarView()
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
+            bottomAccessories
         }
         .animation(
             .spring(duration: 0.4, bounce: 0.12),
@@ -123,9 +132,7 @@ struct ContentView: View {
             if let error = player.currentError {
                 ErrorBanner(error: error) { player.currentError = nil }
                     .padding(.top, 8)
-                    .transition(
-                        .move(edge: .top).combined(with: .opacity)
-                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
                     .task(id: error.id) {
                         try? await Task.sleep(for: .seconds(5))
                         if player.currentError?.id == error.id {
@@ -142,10 +149,45 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Content
+
+    /// The conditional content region. Lives inside a ZStack in `body` so
+    /// modifiers like `.searchable` and `.toolbar` on the ZStack survive
+    /// the list/empty-state swap.
+    @ViewBuilder
+    private var contentBody: some View {
+        if player.tracks.isEmpty {
+            emptyState
+        } else if filteredTracks.isEmpty {
+            filterEmptyState
+        } else {
+            TrackListView(
+                tracks: filteredTracks,
+                scope: currentPlayScope
+            )
+        }
+    }
+
+    /// Bottom safe-area inset: scope chip + player bar, stacked.
+    @ViewBuilder
+    private var bottomAccessories: some View {
+        VStack(spacing: 8) {
+            if player.currentScope.isRestricted, player.currentTrack != nil {
+                ScopeIndicator(scope: player.currentScope) {
+                    player.clearScope()
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if player.currentTrack != nil {
+                PlayerBarView()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
     // MARK: - Subviews
 
-    /// Segmented picker for the list filter. Iconified to keep it compact
-    /// in the nav bar on iOS.
     private var filterPicker: some View {
         Picker("Filter", selection: $filter) {
             ForEach(ListFilter.allCases) { option in
@@ -174,8 +216,6 @@ struct ContentView: View {
         .padding()
     }
 
-    /// Shown when the current filter returns no tracks but the library
-    /// itself has tracks. Different copy per filter because the remedy differs.
     private var filterEmptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: filterEmptyIcon)
@@ -192,8 +232,6 @@ struct ContentView: View {
         .padding()
     }
 
-    /// Search-aware icon: if the user is searching, show a magnifier;
-    /// otherwise show the filter's icon.
     private var filterEmptyIcon: String {
         searchText.isEmpty ? filter.systemImage : "magnifyingglass"
     }

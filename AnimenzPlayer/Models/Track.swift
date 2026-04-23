@@ -38,6 +38,18 @@ struct Track: Identifiable, Hashable {
         self.artworkURL = Self.findArtwork(for: url)
     }
 
+    // MARK: - Wave 3
+
+    /// The anime / movie / game this track is from, derived from the title.
+    /// Returns nil if the title doesn't mention any known show.
+    ///
+    /// Computed rather than stored so adding a new show to `ShowCatalog`
+    /// doesn't require any migration: existing `Track` values will start
+    /// reporting the new derivation on their next access.
+    var show: String? {
+        ShowCatalog.derivedShow(from: title)
+    }
+
     private static func findArtwork(for audioURL: URL) -> URL? {
         let fm = FileManager.default
         let base = audioURL.deletingPathExtension()

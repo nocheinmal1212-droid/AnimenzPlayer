@@ -191,4 +191,150 @@ final class PlayerViewModelTests: XCTestCase {
         engine.simulateTimeTick(42.5)
         XCTAssertEqual(vm.progress, 42.5)
     }
+
+    // MARK: - Wave 3: Scoped playback
+
+    func testDefaultScopeIsAll() async {
+        let (vm, _, _, _) = makeViewModel()
+        XCTAssertEqual(vm.currentScope, .all)
+    }
+
+    func testPlayInScopeSetsCurrentScope() async {
+        let (vm, _, _, _) = makeViewModel()
+        let tracks = vm.tracks
+        let subset = Array(tracks.prefix(2))
+        let scope = PlaybackScope.search(query: "foo", results: subset)
+
+        vm.play(subset[0], inScope: scope)
+        await drainMainActor()
+
+        XCTAssertEqual(vm.currentScope, scope)
+        XCTAssertEqual(vm.currentTrack, subset[0])
+    }
+
+    func testNextWithinScopeStaysWithinScope() async {
+        let (vm, engine, _, _) = makeViewModel(tracks: TestTrack.library(count: 5))
+        let tracks = vm.tracks
+        let subset = [tracks[1], tracks[3]]  // every-other, on purpose
+        let scope = PlaybackScope.search(query: "subset", results: subset)
+
+        vm.play(subset[0], inScope: scope)
+        await drainMainActor()
+        engine.playCallCount = 0
+
+        vm.next()
+        await drainMainActor()
+        XCTAssertEqual(vm.currentTrack, subset[1])
+
+        // Wrap within scope, not into the full library.
+        vm.next()
+        await drainMainActor()
+        XCTAssertEqual(vm.currentTrack, subset[0])
+    }
+
+    func testFinishInScopeWrapsWithinScopeWhenRepeatAll() async {
+        let (vm, engine, _, _) = makeViewModel(tracks: TestTrack.library(count: 5))
+        let tracks = vm.tracks
+        let subset = [tracks[0], tracks[2]]
+        let scope = PlaybackScope.search(query: "s", results: subset)
+        vm.repeatMode = .all
+
+        vm.play(subset.last!, inScope: scope)
+        await drainMainActor()
+
+        engine.simulateFinish()
+        await drainMainActor()
+
+        XCTAssertEqual(vm.currentTrack, subset.first, "repeat-all should wrap within scope")
+    }
+
+    func testFinishInScopeStopsAtEndWhenRepeatOff() async {
+        let (vm, engine, _, _) = makeViewModel(tracks: TestTrack.library(count: 5))
+        let tracks = vm.tracks
+        let subset = [tracks[0], tracks[2]]
+        let scope = PlaybackScope.search(query: "s", results: subset)
+        vm.repeatMode = .off
+
+        vm.play(subset.last!, inScope: scope)
+        await drainMainActor()
+        let before = engine.pauseCallCount
+
+        engine.simulateFinish()
+        await drainMainActor()
+
+        XCTAssertEqual(vm.currentTrack, subset.last,
+                       "repeat-off at end of scope should not change track")
+        XCTAssertGreaterThan(engine.pauseCallCount, before,
+                             "repeat-off at end of scope should pause")
+    }
+
+    func testClearScopeResetsToAllAndPreservesCurrentTrack() async {
+        let (vm, _, _, _) = makeViewModel(tracks: TestTrack.library(count: 5))
+        let tracks = vm.tracks
+        let subset = [tracks[1], tracks[3]]
+        let scope = PlaybackScope.search(query: "s", results: subset)
+
+        vm.play(subset[0], inScope: scope)
+        await drainMainActor()
+        XCTAssertEqual(vm.currentScope, scope)
+
+        vm.clearScope()
+        XCTAssertEqual(vm.currentScope, .all)
+        XCTAssertEqual(vm.currentTrack, subset[0], "clearScope must preserve current track")
+
+        // After clearing, next() should traverse the full library, not the subset.
+        vm.next()
+        await drainMainActor()
+        XCTAssertEqual(vm.currentTrack, tracks[2],
+                       "after clearScope, next() advances within the full library")
+    }
+
+    func testPlayWithTrackNotInScopeSurfacesError() async {
+        let (vm, engine, _, _) = makeViewModel(tracks: TestTrack.library(count: 5))
+        let tracks = vm.tracks
+        let subset = [tracks[0], tracks[1]]
+        let scope = PlaybackScope.search(query: "s", results: subset)
+
+        // tracks[3] isn't in subset, so this should error without loading.
+        vm.play(tracks[3], inScope: scope)
+        await drainMainActor()
+
+        XCTAssertEqual(engine.loadedURLs.count, 0)
+        XCTAssertEqual(vm.currentError, .noTracksAvailable)
+        XCTAssertEqual(vm.currentScope, .all, "scope must not change on failed play")
+    }
+
+    func testScopePersistsQueryOnPlay() async {
+        let (vm, _, _, persistence) = makeViewModel(tracks: TestTrack.library(count: 3))
+        let tracks = vm.tracks
+        let scope = PlaybackScope.search(query: "demo", results: tracks)
+
+        vm.play(tracks[0], inScope: scope)
+        await drainMainActor()
+        persistence.flush()
+
+        XCTAssertEqual(persistence.state.lastScopeQuery, "demo")
+    }
+
+    func testClearScopeClearsPersistedQuery() async {
+        let (vm, _, _, persistence) = makeViewModel(tracks: TestTrack.library(count: 3))
+        let tracks = vm.tracks
+        let scope = PlaybackScope.search(query: "demo", results: tracks)
+
+        vm.play(tracks[0], inScope: scope)
+        await drainMainActor()
+        vm.clearScope()
+        persistence.flush()
+
+        XCTAssertNil(persistence.state.lastScopeQuery)
+    }
+
+    func testLegacyPlayWithoutScopeUsesAll() async {
+        // Regression guard: the no-scope `play(_:)` still works as before,
+        // and does NOT flip scope to anything else.
+        let (vm, _, _, _) = makeViewModel()
+        vm.play(vm.tracks[0])
+        await drainMainActor()
+        XCTAssertEqual(vm.currentScope, .all)
+    }
 }

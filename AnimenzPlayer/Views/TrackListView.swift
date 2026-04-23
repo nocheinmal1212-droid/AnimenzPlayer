@@ -3,6 +3,12 @@ import SwiftUI
 struct TrackListView: View {
     let tracks: [Track]
     @Binding var searchText: String
+
+    /// The scope to apply when the user plays a track from this list. Owned
+    /// by the parent (ContentView) because it depends on filter + search
+    /// state the list itself doesn't know about.
+    let scope: PlaybackScope
+
     @EnvironmentObject var player: PlayerViewModel
 
     var body: some View {
@@ -11,7 +17,7 @@ struct TrackListView: View {
                 .listRowSeparator(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    player.play(track)
+                    player.play(track, inScope: scope)
                     Haptics.play(.selection)
                 }
                 .contextMenu {
@@ -26,12 +32,15 @@ struct TrackListView: View {
                         )
                     }
                     Button {
-                        player.play(track)
+                        player.play(track, inScope: scope)
                     } label: {
                         Label("Play", systemImage: "play.fill")
                     }
                 }
         }
+        // Let the ambient background show through when the surrounding
+        // ContentView has one. iOS 16+/macOS 13+.
+        .scrollContentBackground(.hidden)
         #if os(iOS)
         .listStyle(.plain)
         .searchable(

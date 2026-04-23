@@ -27,6 +27,18 @@ final class PersistenceStore: ObservableObject {
         /// Most-recently-played track URLs, newest first. Capped — see
         /// `PlayerViewModel.recordPlay(_:)`.
         var recentlyPlayed: [URL] = []
+
+        // MARK: Wave 3
+        /// The search query that produced the current playback scope, if
+        /// any. On relaunch the view model re-ranks the query against the
+        /// (possibly changed) library to rebuild the scope's track list, so
+        /// only the query itself needs persisting — not the resolved
+        /// results. Nil means scope is `.all`.
+        var lastScopeQuery: String? = nil
+        /// Feature flag for Wave 3's themed ambient background. Defaulted
+        /// to `true` so existing users opt in on upgrade; a preference
+        /// toggle can be added later without a migration.
+        var themedBackgroundsEnabled: Bool = true
     }
 
     @Published private(set) var state: State

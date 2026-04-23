@@ -48,6 +48,14 @@ final class PlayerViewModel: ObservableObject {
     /// The Wave 2 cap on `recentlyPlayed` entries.
     private let recentlyPlayedCap = 50
 
+    // MARK: - Wave 3 state
+
+    /// What subset of the library playback is currently traversing. Default
+    /// is `.all`. Changed by `play(_:inScope:)` (set) and `clearScope()`
+    /// (reset). Persisted to disk as `lastScopeQuery` — only `.search` is
+    /// serialized because the others are re-derivable.
+    @Published private(set) var currentScope: PlaybackScope = .all
+
     // MARK: - Collaborators
 
     private let library: LibraryStore
@@ -84,6 +92,7 @@ final class PlayerViewModel: ObservableObject {
         bindEngine()
         bindLibrary()
         bindWave2()
+        bindWave3()
         restoreFromPersistence()
     }
 
@@ -120,16 +129,10 @@ final class PlayerViewModel: ObservableObject {
 
     // MARK: - Intents
 
+    /// Backward-compatible play entry point. Equivalent to playing within
+    /// `.all` scope (the Wave 1–2 behavior).
     func play(_ track: Track) {
-        guard !queue.isEmpty else {
-            currentError = .noTracksAvailable
-            return
-        }
-        guard queue.jump(to: track) != nil else {
-            currentError = .noTracksAvailable
-            return
-        }
-        Task { await loadAndPlay(track, autoStart: true) }
+        play(track, inScope: .all)
     }
 
     func togglePlayPause() {
@@ -207,6 +210,41 @@ final class PlayerViewModel: ObservableObject {
 
     func cancelSleepTimer() {
         sleepTimer.stop()
+    }
+
+    // MARK: - Wave 3 intents
+
+    /// Play `track`, restricting the queue to `scope`'s tracks. Next /
+    /// previous / shuffle / repeat subsequently act within scope.
+    ///
+    /// If `scope`'s track list is empty or doesn't contain `track`,
+    /// surfaces `.noTracksAvailable` and leaves the queue untouched.
+    func play(_ track: Track, inScope newScope: PlaybackScope) {
+        let scopeTracks = tracksForScope(newScope)
+        guard !scopeTracks.isEmpty, scopeTracks.contains(track) else {
+            currentError = .noTracksAvailable
+            return
+        }
+        // `preservingCurrent: false` resets position to 0 and rebuilds the
+        // shuffle order for the new list; jump(to:) then lands the play
+        // head on the requested track.
+        queue.setTracks(scopeTracks, preservingCurrent: false)
+        if currentScope != newScope {
+            currentScope = newScope
+        }
+        guard queue.jump(to: track) != nil else {
+            currentError = .noTracksAvailable
+            return
+        }
+        Task { await loadAndPlay(track, autoStart: true) }
+    }
+
+    /// Reset scope to `.all`, preserving the currently-playing track.
+    /// Called by the ScopeIndicator's "X" button.
+    func clearScope() {
+        guard currentScope != .all else { return }
+        queue.setTracks(tracks, preservingCurrent: true)
+        currentScope = .all
     }
 
     // MARK: - Lifecycle hooks
@@ -332,10 +370,43 @@ final class PlayerViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Called when the engine reports a track finished naturally. Consults
-    /// repeat mode and the sleep timer. Sleep-timer expiration takes
-    /// precedence — if the user set "end of track", we don't start the next
-    /// one even if repeat mode would normally advance.
+    // MARK: - Wave 3 bindings
+
+    /// Wires the Wave 3 behaviors. Additive per chokepoint rule #4:
+    /// this method does not edit Wave 1 or Wave 2 bindings.
+    ///
+    /// Two responsibilities:
+    /// 1. Persist scope changes to disk (query only; results are re-derived).
+    /// 2. Re-apply scope if the library is reloaded mid-session (e.g. a
+    ///    future user-triggered refresh). Uses `dropFirst()` to skip the
+    ///    initial library value, which is already handled by
+    ///    `restoreFromPersistence()`.
+    private func bindWave3() {
+        $currentScope
+            .dropFirst()
+            .sink { [weak self] scope in
+                guard let self else { return }
+                let query: String? = {
+                    if case .search(let q, _) = scope { return q }
+                    return nil
+                }()
+                self.persistence.update { $0.lastScopeQuery = query }
+            }
+            .store(in: &cancellables)
+
+        library.$tracks
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.reapplyScopeAfterLibraryChange()
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Called when a track finishes naturally. Consults repeat mode and the
+    /// sleep timer. Sleep-timer expiration takes precedence — if the user set
+    /// "end of track", we don't start the next one even if repeat mode would
+    /// normally advance.
     private func handleTrackFinished() {
         let wasEndOfTrackTimer: Bool
         if case .endOfTrack = sleepTimer.mode { wasEndOfTrackTimer = true }
@@ -402,6 +473,22 @@ final class PlayerViewModel: ObservableObject {
         recentlyPlayed = state.recentlyPlayed
         // --- end Wave 2 ---
 
+        // --- Wave 3 restoration ---
+        // Re-apply a saved search scope, if any. If the query no longer
+        // resolves to any tracks (e.g. the library changed), fall back to
+        // `.all` silently. Non-search scopes (.favorites, .recent) are
+        // ephemeral per session by design — scope persistence is about the
+        // restricted-playback experience not being lost on relaunch, and
+        // those two scopes are fully derivable from other saved state.
+        if let query = state.lastScopeQuery {
+            let results = SearchEngine.rank(query, in: library.tracks)
+            if !results.isEmpty {
+                queue.setTracks(results, preservingCurrent: true)
+                currentScope = .search(query: query, results: results)
+            }
+        }
+        // --- end Wave 3 ---
+
         guard let url = state.lastTrackURL,
               let track = tracks.first(where: { $0.url == url }) else {
             return
@@ -423,6 +510,41 @@ final class PlayerViewModel: ObservableObject {
                 }
             } catch {
                 // Restore is best-effort. Silent failure is acceptable.
+            }
+        }
+    }
+
+    // MARK: - Wave 3 helpers
+
+    /// Resolve a scope to its ordered list of tracks. Search scopes carry
+    /// their own snapshot; the other cases derive from current state.
+    private func tracksForScope(_ scope: PlaybackScope) -> [Track] {
+        switch scope {
+        case .all:                       return tracks
+        case .favorites:                 return favoriteTracks
+        case .recent:                    return recentlyPlayedTracks
+        case .search(_, let results):    return results
+        }
+    }
+
+    /// Called from `bindWave3` when the library's tracks change after init.
+    /// Rebuilds the queue from the current scope so playback never points at
+    /// stale URLs. For `.search`, re-ranks with the new library; if nothing
+    /// matches any more, silently drops back to `.all`.
+    private func reapplyScopeAfterLibraryChange() {
+        switch currentScope {
+        case .all:
+            // Handled by the Wave 1 bindLibrary sink; nothing to do.
+            return
+        case .favorites, .recent:
+            queue.setTracks(tracksForScope(currentScope), preservingCurrent: true)
+        case .search(let query, _):
+            let fresh = SearchEngine.rank(query, in: library.tracks)
+            if fresh.isEmpty {
+                clearScope()
+            } else {
+                queue.setTracks(fresh, preservingCurrent: true)
+                currentScope = .search(query: query, results: fresh)
             }
         }
     }

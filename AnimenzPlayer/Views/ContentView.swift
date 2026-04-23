@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Top-level view. Hosts the track list, player bar, error banner, and
-/// (Wave 2) a filter picker to switch between All / Favorites / Recently
-/// Played.
+/// Top-level view. Hosts the track list, player bar, error banner, filter
+/// picker, and (Wave 3) search-driven ranking, scope indicator, and themed
+/// ambient background.
 struct ContentView: View {
     @EnvironmentObject var player: PlayerViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -29,49 +29,92 @@ struct ContentView: View {
 
     // MARK: - Derived
 
-    /// The tracks to display, after filter + search.
-    private var filteredTracks: [Track] {
-        let base: [Track]
+    /// Base list of tracks per the current filter (before search ranking).
+    private var baseTracks: [Track] {
         switch filter {
-        case .all:       base = player.tracks
-        case .favorites: base = player.favoriteTracks
-        case .recent:    base = player.recentlyPlayedTracks
+        case .all:       return player.tracks
+        case .favorites: return player.favoriteTracks
+        case .recent:    return player.recentlyPlayedTracks
         }
-        guard !searchText.isEmpty else { return base }
-        return base.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText)
+    }
+
+    /// The tracks to display. Wave 3: search goes through `SearchEngine.rank`
+    /// so typing "AOT" returns Attack on Titan tracks, etc. Empty query =
+    /// baseTracks in their natural order.
+    private var filteredTracks: [Track] {
+        SearchEngine.rank(searchText, in: baseTracks)
+    }
+
+    /// The scope that should be captured when the user starts playback
+    /// right now. Rule: a non-empty search always wins (scope becomes
+    /// `.search`); otherwise it mirrors the filter picker.
+    private var currentPlayScope: PlaybackScope {
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty {
+            return .search(query: trimmed, results: filteredTracks)
+        }
+        switch filter {
+        case .all:       return .all
+        case .favorites: return .favorites
+        case .recent:    return .recent
         }
     }
 
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if player.tracks.isEmpty {
-                    emptyState
-                } else if filteredTracks.isEmpty {
-                    filterEmptyState
-                } else {
-                    TrackListView(tracks: filteredTracks, searchText: $searchText)
+        ZStack {
+            // Wave 3: themed ambient background behind everything. Renders
+            // nothing when scope doesn't resolve to a known show.
+            AmbientBackground(scope: player.currentScope, library: player.tracks)
+                .ignoresSafeArea()
+
+            NavigationStack {
+                Group {
+                    if player.tracks.isEmpty {
+                        emptyState
+                    } else if filteredTracks.isEmpty {
+                        filterEmptyState
+                    } else {
+                        TrackListView(
+                            tracks: filteredTracks,
+                            searchText: $searchText,
+                            scope: currentPlayScope
+                        )
+                    }
                 }
-            }
-            .navigationTitle("Animenz")
-            #if os(macOS)
-            .navigationSubtitle(player.currentTrack?.title ?? "")
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    filterPicker
+                .navigationTitle("Animenz")
+                #if os(macOS)
+                .navigationSubtitle(player.currentTrack?.title ?? "")
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        filterPicker
+                    }
                 }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if player.currentTrack != nil {
-                PlayerBarView()
+            VStack(spacing: 8) {
+                // Wave 3: scope indicator. Only meaningful when there's a
+                // track to play from scope, so we gate on currentTrack too.
+                if player.currentScope.isRestricted, player.currentTrack != nil {
+                    ScopeIndicator(scope: player.currentScope) {
+                        player.clearScope()
+                    }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if player.currentTrack != nil {
+                    PlayerBarView()
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
+        .animation(
+            .spring(duration: 0.4, bounce: 0.12),
+            value: player.currentScope
+        )
         .animation(
             .spring(duration: 0.45, bounce: 0.15),
             value: player.currentTrack != nil
@@ -135,7 +178,7 @@ struct ContentView: View {
     /// itself has tracks. Different copy per filter because the remedy differs.
     private var filterEmptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: filter.systemImage)
+            Image(systemName: filterEmptyIcon)
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
             Text(filterEmptyTitle)
@@ -149,7 +192,14 @@ struct ContentView: View {
         .padding()
     }
 
+    /// Search-aware icon: if the user is searching, show a magnifier;
+    /// otherwise show the filter's icon.
+    private var filterEmptyIcon: String {
+        searchText.isEmpty ? filter.systemImage : "magnifyingglass"
+    }
+
     private var filterEmptyTitle: String {
+        if !searchText.isEmpty { return "No results" }
         switch filter {
         case .all:       return "No tracks match"
         case .favorites: return "No favorites yet"
@@ -158,6 +208,9 @@ struct ContentView: View {
     }
 
     private var filterEmptyMessage: String {
+        if !searchText.isEmpty {
+            return "Try a different search term. Aliases like AOT, JJK, or SAO are supported."
+        }
         switch filter {
         case .all:       return "Try a different search term."
         case .favorites: return "Tap the heart on any track to add it to favorites."

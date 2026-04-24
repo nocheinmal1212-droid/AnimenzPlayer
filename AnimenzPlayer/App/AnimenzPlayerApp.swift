@@ -8,7 +8,9 @@ struct AnimenzPlayerApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(player)
+                #if os(macOS)
                 .frame(minWidth: 500, minHeight: 600)
+                #endif
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)

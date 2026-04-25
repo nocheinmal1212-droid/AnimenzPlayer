@@ -4,8 +4,6 @@ A minimal, cross-platform (iOS / macOS) SwiftUI music player for a local library
 
 The browsing model is search-first rather than album-based. The search box understands acronyms and aliases — typing `AOT` surfaces every Attack on Titan track, `JJK` every Jujutsu Kaisen track, and first-letter acronyms reach shows outside the curated table. Playing a track from a search captures those results as the active play queue, so shuffle, next, and previous cycle within the searched scope until the scope is explicitly cleared — the search box and the scope are independent, letting you keep listening to one show while browsing for another. When the scope resolves to a known show, the window picks up a subtle blurred backdrop derived from that show's artwork.
 
-Planned for upcoming waves: an expandable full-screen player with matched-geometry artwork transitions and a waveform scrubber (Wave 4), plus audio enhancements via on-device ML (denoising, timbre transfer, upmix) and MIDI support for driving / being driven by external devices and for exporting the piano covers' transcribed notes.
-
 ---
 
 ## Table of contents

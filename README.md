@@ -86,3 +86,7 @@ The modifier combinations avoid normal text-navigation shortcuts. Space enters t
 - [Architecture](docs/architecture.md): component responsibilities, playback scope, persistence, recovery, and layout constraints.
 - [Contributing](CONTRIBUTING.md): development workflow, tests, and manual checks.
 - [Troubleshooting](docs/troubleshooting.md): library setup, build issues, playback recovery, and diagnostics.
+
+## License
+
+Licensed under the [MIT License](LICENSE).

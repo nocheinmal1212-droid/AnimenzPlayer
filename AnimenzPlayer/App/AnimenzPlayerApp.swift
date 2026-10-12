@@ -18,7 +18,7 @@ struct AnimenzPlayerApp: App {
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)
-        // Wave 2 — macOS menu-bar commands with keyboard shortcuts.
+        // macOS menu-bar commands with keyboard shortcuts.
         // Grouped under a "Playback" menu so they're discoverable.
         .commands {
             PlaybackCommands(player: player)

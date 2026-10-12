@@ -68,7 +68,7 @@ struct PlayQueue: Equatable {
         return current
     }
 
-    // MARK: - Wave 2 — Repeat-aware advance
+    // MARK: - Repeat-aware advance
 
     /// Result of a natural "track finished" event, given a repeat mode.
     enum FinishOutcome: Equatable {

@@ -6,15 +6,11 @@ import SwiftUI
 /// low opacity behind the main content. When scope doesn't resolve to a
 /// known show, renders nothing (callers see a transparent view).
 ///
-/// This is the minimal implementation from WAVE3_PLAN §5.1:
-/// - No new bundled assets — everything flows through the existing
-///   `ArtworkCache`, keyed by `(track.url, size)`.
-/// - No collage / procedural generation (those overlap with Wave 4).
-/// - No animation beyond a simple cross-fade when scope changes.
+/// Reuses `ArtworkCache`, keyed by `(track.url, size)`, without new assets.
+/// See docs/architecture.md for the background and navigation layout constraints.
 ///
-/// Gated by `PersistenceStore.State.themedBackgroundsEnabled` via
-/// `@AppStorage`. Setting that to false reverts the view to its default
-/// appearance, no code changes required.
+/// Gated by the `themedBackgroundsEnabled` UserDefaults preference via
+/// `@AppStorage`. The same-named JSON state field is not read here.
 struct AmbientBackground: View {
     let scope: PlaybackScope
     let library: [Track]

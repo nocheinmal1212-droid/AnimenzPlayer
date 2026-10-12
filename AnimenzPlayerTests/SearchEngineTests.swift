@@ -1,8 +1,8 @@
 import XCTest
 @testable import AnimenzPlayer
 
-/// Tests for the Wave 3 search engine. Uses a fixture library of real titles
-/// drawn from the bundled `music_list.txt` so regressions show up as "query
+/// Tests for search ranking. Uses a fixture library of real titles
+/// drawn from the reference catalog `music_list.txt` so regressions show up as "query
 /// X used to return tracks A,B,C and now returns something else".
 final class SearchEngineTests: XCTestCase {
 
@@ -53,7 +53,7 @@ final class SearchEngineTests: XCTestCase {
         XCTAssertEqual(result, tracks)
     }
 
-    // MARK: - Substring regressions (Wave 1 behavior preserved)
+    // MARK: - Substring regressions
 
     func testTitleSubstringMatch() {
         let tracks = Self.makeFixture()
@@ -129,9 +129,8 @@ final class SearchEngineTests: XCTestCase {
         //
         // (Note: "sao alicization" would feel natural here but doesn't work
         // under current scoring — "sao" is an alias, not a substring of
-        // "sword art online". Expanding aliases inside multi-token queries
-        // is a fine Wave 3+ enhancement, intentionally left out of scope
-        // here to keep the ranking rules simple and predictable.)
+        // "sword art online". Multi-token queries currently match literal
+        // substrings without expanding individual aliases.)
         let result = SearchEngine.rank("sword alicization", in: tracks)
         XCTAssertEqual(result.count, 1)
         XCTAssertTrue(result[0].title.contains("Alicization"))

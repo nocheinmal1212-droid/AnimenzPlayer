@@ -30,7 +30,7 @@ final class PlayerViewModel: ObservableObject {
     /// See `PlaybackProgressModel` for rationale.
     let progressModel = PlaybackProgressModel()
 
-    /// Read-only forwarder for existing call sites (tests, persistence,
+    /// Forwarder for existing call sites (tests, persistence,
     /// `previous()`'s "restart if >3s in" check). Writes must go through
     /// `progressModel.progress` directly so SwiftUI subscribes correctly.
     var progress: Double {
@@ -38,7 +38,7 @@ final class PlayerViewModel: ObservableObject {
         set { progressModel.progress = newValue }
     }
 
-    // MARK: - Wave 2 state
+    // MARK: - Preferences and history
 
     /// Repeat mode. Persisted.
     @Published var repeatMode: RepeatMode = .off {
@@ -57,10 +57,10 @@ final class PlayerViewModel: ObservableObject {
     /// Exposed so views can observe the countdown / start / stop.
     let sleepTimer: SleepTimer
 
-    /// The Wave 2 cap on `recentlyPlayed` entries.
+    /// Maximum number of `recentlyPlayed` entries.
     private let recentlyPlayedCap = 50
 
-    // MARK: - Wave 3 state
+    // MARK: - Playback scope
 
     /// What subset of the library playback is currently traversing. Default
     /// is `.all`. Changed by `play(_:inScope:)` (set) and `clearScope()`
@@ -75,7 +75,7 @@ final class PlayerViewModel: ObservableObject {
     private let persistence: PersistenceStore
     private var queue = PlayQueue()
 
-    // MARK: - Wave 2 collaborators
+    // MARK: - System integration collaborators
 
     private let nowPlaying: NowPlayingController
 
@@ -125,8 +125,8 @@ final class PlayerViewModel: ObservableObject {
         )
     }
 
-    /// Wave-1-compatible convenience init. Kept so existing call sites
-    /// (previews, early tests) that don't care about Wave 2 collaborators
+    /// Convenience init for call sites
+    /// (previews, tests) that do not need system integration collaborators
     /// continue to compile. New code should use the designated init.
     convenience init(
         library: LibraryStore,
@@ -145,7 +145,7 @@ final class PlayerViewModel: ObservableObject {
     // MARK: - Intents
 
     /// Backward-compatible play entry point. Equivalent to playing within
-    /// `.all` scope (the Wave 1–2 behavior).
+    /// `.all` scope.
     func play(_ track: Track) {
         play(track, inScope: .all)
     }
@@ -204,7 +204,7 @@ final class PlayerViewModel: ObservableObject {
         Task { await engine.seek(to: time) }
     }
 
-    // MARK: - Wave 2 intents
+    // MARK: - Preferences and timer intents
 
     /// Cycle repeat mode: off → all → one → off.
     func cycleRepeatMode() {
@@ -248,7 +248,7 @@ final class PlayerViewModel: ObservableObject {
         sleepTimer.stop()
     }
 
-    // MARK: - Wave 3 intents
+    // MARK: - Scope intents
 
     /// Play `track`, restricting the queue to `scope`'s tracks. Next /
     /// previous / shuffle / repeat subsequently act within scope.
@@ -331,15 +331,12 @@ final class PlayerViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    // MARK: - Wave 2 bindings
+    // MARK: - System integration bindings
 
-    /// Wires the Wave 2 collaborators. This method is deliberately additive:
-    /// it doesn't mutate the existing Wave 1 bindings but *does* replace the
-    /// engine's `onFinish` callback to make it repeat-aware. The Wave 1
-    /// `bindEngine` above sets `onFinish = next` as a default; we override
-    /// here because the semantics genuinely change in Wave 2.
+    /// Wires remote commands, interruptions, timers, and Now Playing state.
+    /// Replaces `bindEngine`'s default finish callback with repeat-aware logic.
     private func bindWave2() {
-        // Override Wave 1's onFinish with repeat-aware logic.
+        // Override the default onFinish with repeat-aware logic.
         engine.onFinish = { [weak self] in
             self?.handleTrackFinished()
         }
@@ -412,15 +409,14 @@ final class PlayerViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    // MARK: - Wave 3 bindings
+    // MARK: - Scope bindings
 
-    /// Wires the Wave 3 behaviors. Additive per chokepoint rule #4:
-    /// this method does not edit Wave 1 or Wave 2 bindings.
+    /// Wires scope persistence and library-change handling.
     ///
     /// Two responsibilities:
     /// 1. Persist scope changes to disk (query only; results are re-derived).
-    /// 2. Re-apply scope if the library is reloaded mid-session (e.g. a
-    ///    future user-triggered refresh). Uses `dropFirst()` to skip the
+    /// 2. Re-apply scope if the library is reloaded mid-session.
+    ///    Uses `dropFirst()` to skip the
     ///    initial library value, which is already handled by
     ///    `restoreFromPersistence()`.
     private func bindWave3() {
@@ -510,15 +506,14 @@ final class PlayerViewModel: ObservableObject {
             isShuffled = state.isShuffled
         }
 
-        // --- Wave 2 restoration ---
+        // Restore preferences and history.
         if repeatMode != state.repeatMode {
             repeatMode = state.repeatMode  // triggers didSet; same harmless self-write
         }
         favorites = state.favorites
         recentlyPlayed = state.recentlyPlayed
-        // --- end Wave 2 ---
 
-        // --- Wave 3 restoration ---
+        // Restore search scope.
         // Re-apply a saved search scope, if any. If the query no longer
         // resolves to any tracks (e.g. the library changed), fall back to
         // `.all` silently. Non-search scopes (.favorites, .recent) are
@@ -532,7 +527,6 @@ final class PlayerViewModel: ObservableObject {
                 currentScope = .search(query: query, results: results)
             }
         }
-        // --- end Wave 3 ---
 
         guard let url = state.lastTrackURL,
               let track = tracks.first(where: { $0.url == url }) else {
@@ -569,7 +563,7 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Wave 3 helpers
+    // MARK: - Scope helpers
 
     /// Resolve a scope to its ordered list of tracks. Search scopes carry
     /// their own snapshot; the other cases derive from current state.
@@ -589,7 +583,7 @@ final class PlayerViewModel: ObservableObject {
     private func reapplyScopeAfterLibraryChange() {
         switch currentScope {
         case .all:
-            // Handled by the Wave 1 bindLibrary sink; nothing to do.
+            // Handled by the bindLibrary sink; nothing to do.
             return
         case .favorites, .recent:
             queue.setTracks(tracksForScope(currentScope), preservingCurrent: true)
@@ -664,7 +658,7 @@ final class PlayerViewModel: ObservableObject {
                 $0.lastTrackURL = track.url
                 $0.lastPosition = 0
             }
-            // Wave 2: record this in the recently-played list.
+            // Record this in the recently-played list.
             recordPlay(track)
             logContext("coordinator.load_committed", context)
         } catch is CancellationError {

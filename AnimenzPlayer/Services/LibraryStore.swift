@@ -3,8 +3,7 @@ import Combine
 
 /// Owns the set of tracks available to the player. Currently only scans the
 /// app's bundled `Music/` folder (or bundle root as a fallback), matching the
-/// original app's behavior. Designed to be the single place future Wave 3
-/// collection/album logic plugs into.
+/// bundle layout. Discovery is flat and does not read `music_list.txt`.
 @MainActor
 final class LibraryStore: ObservableObject {
     @Published private(set) var tracks: [Track] = []
@@ -19,8 +18,7 @@ final class LibraryStore: ObservableObject {
         if autoload { reload() }
     }
 
-    /// Re-scan the bundle. Exposed so future features (user import, file-picker
-    /// drop, iCloud) can trigger a refresh without re-creating the store.
+    /// Re-scan the bundle without re-creating the store.
     func reload() {
         tracks = discoverTracks()
     }

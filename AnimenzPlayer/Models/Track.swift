@@ -38,7 +38,7 @@ struct Track: Identifiable, Hashable {
         self.artworkURL = Self.findArtwork(for: url)
     }
 
-    // MARK: - Wave 3
+    // MARK: - Show derivation
 
     /// The anime / movie / game this track is from, derived from the title.
     /// Returns nil if the title doesn't mention any known show.

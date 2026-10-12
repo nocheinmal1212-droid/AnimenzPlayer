@@ -1,2 +1,5 @@
 AnimenzPlayer/Music/
 AnimenzPlayer/Assets.xcassets/
+.DS_Store
+xcuserdata/
+DerivedData/

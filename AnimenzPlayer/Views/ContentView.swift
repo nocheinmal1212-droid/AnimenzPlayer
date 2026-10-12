@@ -1,14 +1,14 @@
 import SwiftUI
 
 /// Top-level view. Hosts the track list, player bar, error banner, filter
-/// picker, and (Wave 3) search-driven ranking, scope indicator, and themed
+/// picker, search-driven ranking, scope indicator, and themed
 /// ambient background.
 struct ContentView: View {
     @EnvironmentObject var player: PlayerViewModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var searchText = ""
 
-    // MARK: - Wave 2 state
+    // MARK: - List filter
 
     enum ListFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -38,7 +38,7 @@ struct ContentView: View {
         }
     }
 
-    /// The tracks to display. Wave 3: search goes through `SearchEngine.rank`
+    /// The tracks to display. Search goes through `SearchEngine.rank`
     /// so typing "AOT" returns Attack on Titan tracks, etc.
     private var filteredTracks: [Track] {
         SearchEngine.rank(searchText, in: baseTracks)
@@ -61,36 +61,10 @@ struct ContentView: View {
     // MARK: - Body
 
     var body: some View {
-        // Structure notes — three iterations of bugs, now fixed:
-        //
-        // Iteration 1 (broken):
-        //   Put `.searchable` on `TrackListView`. When search returned no
-        //   results, TrackListView was swapped out, `.searchable` went with
-        //   it, and on macOS the toolbar entered a state where the search
-        //   field vanished AND the filter picker stopped accepting clicks.
-        //
-        // Iteration 2 (broken differently):
-        //   Moved `.searchable` OUTSIDE the NavigationStack onto the outer
-        //   view chain. That fixed the empty-state tear-down, but on macOS
-        //   `.searchable` needs a navigation container to render into —
-        //   placed outside, the search field simply never appears.
-        //
-        // Iteration 3 (this version):
-        //   `.searchable` lives INSIDE the NavigationStack (so it has a
-        //   toolbar) but attached to a stable wrapper view — a ZStack
-        //   around the conditional content, which never unmounts. This is
-        //   the canonical SwiftUI pattern:
-        //
-        //     NavigationStack {
-        //       ZStack { if ... else ... }      ← stable host
-        //         .searchable(text: $text)      ← survives content swaps
-        //         .toolbar { ... }
-        //     }
-        //
-        // AmbientBackground is layered via `.background { ... }` on the
-        // NavigationStack so it paints beneath content without reshaping
-        // the layout tree (which, in an earlier attempt using a sibling
-        // ZStack + ignoresSafeArea, broke hit-testing and window chrome).
+        // Keep search/toolbar on a stable host inside NavigationStack so
+        // empty-state swaps preserve the toolbar. Paint ambient artwork as a
+        // background to preserve safe areas, window chrome, and hit-testing.
+        // See docs/architecture.md for these layout constraints.
         NavigationStack {
             ZStack {
                 contentBody

@@ -1,12 +1,10 @@
 import Foundation
 
 /// Canonical show names, alias expansions, and derivation rules. This is the
-/// one place the rest of Wave 3 consults when it needs to answer "what show
+/// one place callers consult when they need to answer "what show
 /// does this track belong to?" or "what show does this query mean?".
 ///
-/// The catalog is intentionally code-resident (not user-editable) for Wave 3.
-/// A future wave can layer `PersistenceStore.State.userAliases` on top of
-/// `canonicalAliases` without changing the callers.
+/// Canonical names and aliases are maintained in code; there is no alias editor.
 enum ShowCatalog {
 
     // MARK: - Canonical shows

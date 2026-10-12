@@ -6,20 +6,20 @@ import Combine
 ///
 /// Designed to grow: add fields to `State` and they'll be serialized without
 /// any changes here. JSON is used over SwiftData/Core Data because the state
-/// is tiny and we want to keep the surface area small for Wave 1.
+/// is tiny. Failed decoding falls back to default state.
 ///
 /// Pass `fileURL: nil` to get an in-memory-only store (used by tests and
 /// previews).
 @MainActor
 final class PersistenceStore: ObservableObject {
     struct State: Codable, Equatable {
-        // MARK: Wave 1
+        // MARK: Playback
         var lastTrackURL: URL?
         var lastPosition: Double = 0
         var isShuffled: Bool = false
 
-        // MARK: Wave 2
-        /// Repeat mode. Defaulted to `.off` so old state files decode.
+        // MARK: Preferences and history
+        /// Repeat mode for newly initialized state.
         var repeatMode: RepeatMode = .off
         /// URLs the user has hearted. Stored as Set for O(1) membership;
         /// Codable handles Set<URL> natively.
@@ -28,16 +28,15 @@ final class PersistenceStore: ObservableObject {
         /// `PlayerViewModel.recordPlay(_:)`.
         var recentlyPlayed: [URL] = []
 
-        // MARK: Wave 3
+        // MARK: Scope and background state
         /// The search query that produced the current playback scope, if
         /// any. On relaunch the view model re-ranks the query against the
         /// (possibly changed) library to rebuild the scope's track list, so
         /// only the query itself needs persisting — not the resolved
         /// results. Nil means scope is `.all`.
         var lastScopeQuery: String? = nil
-        /// Feature flag for Wave 3's themed ambient background. Defaulted
-        /// to `true` so existing users opt in on upgrade; a preference
-        /// toggle can be added later without a migration.
+        /// Retained JSON field. `AmbientBackground` reads the same-named
+        /// UserDefaults preference through `@AppStorage`, not this field.
         var themedBackgroundsEnabled: Bool = true
     }
 

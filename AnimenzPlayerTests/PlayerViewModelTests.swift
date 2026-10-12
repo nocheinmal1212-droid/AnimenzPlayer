@@ -226,7 +226,7 @@ final class PlayerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.progress, 42.5)
     }
 
-    // MARK: - Wave 3: Scoped playback
+    // MARK: - Scoped playback
 
     func testDefaultScopeIsAll() async {
         let (vm, _, _, _) = makeViewModel()

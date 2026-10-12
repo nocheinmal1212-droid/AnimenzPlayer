@@ -19,7 +19,7 @@ import UIKit
 /// image and the thumbnail for the same track are cached independently.
 enum ArtworkSize {
     case thumbnail   // list rows (≈44pt × 3x scale)
-    case full        // player bar / future full-screen player
+    case full        // player bar and ambient artwork
 
     var maxPixelDimension: Int {
         switch self {

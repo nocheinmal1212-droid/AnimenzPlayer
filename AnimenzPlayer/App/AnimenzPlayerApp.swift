@@ -4,6 +4,10 @@ import SwiftUI
 struct AnimenzPlayerApp: App {
     @StateObject private var player = PlayerViewModel()
 
+    #if os(macOS)
+    init() { MacPlaybackDiagnostics.shared.start() }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -57,6 +61,7 @@ struct AnimenzPlayerApp: App {
 /// timing. Unconditional + `.disabled` is the reliable pattern.
 struct PlaybackCommands: Commands {
     @ObservedObject var player: PlayerViewModel
+    @ObservedObject private var diagnostics = MacPlaybackDiagnostics.shared
 
     private var favoriteTitle: String {
         guard let track = player.currentTrack else {
@@ -70,14 +75,14 @@ struct PlaybackCommands: Commands {
     var body: some Commands {
         CommandMenu("Playback") {
             Button(player.isPlaying ? "Pause" : "Play") {
-                player.togglePlayPause()
+                player.togglePlayPause(source: "menu_or_keyboard")
             }
             .keyboardShortcut(.space, modifiers: [])
 
-            Button("Next Track") { player.next() }
+            Button("Next Track") { player.next(source: "menu_or_keyboard") }
                 .keyboardShortcut(.rightArrow, modifiers: [.option, .command])
 
-            Button("Previous Track") { player.previous() }
+            Button("Previous Track") { player.previous(source: "menu_or_keyboard") }
                 .keyboardShortcut(.leftArrow, modifiers: [.option, .command])
 
             Divider()
@@ -97,6 +102,11 @@ struct PlaybackCommands: Commands {
             }
             .keyboardShortcut("l", modifiers: [.command, .shift])
             .disabled(player.currentTrack == nil)
+
+            Divider()
+
+            Button("Export Debug Log…") { player.exportDebugLog() }
+                .disabled(diagnostics.isExporting)
         }
     }
 }

@@ -31,7 +31,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				docs/updates/WAVE3_PLAN.md,
-				docs/updates/WAVE3_SUMMARY.md,
+				Models/WAVE3_SUMMARY.md,
 			);
 			target = 8A0EC38C2F9894F30053C4D5 /* AnimenzPlayerTests */;
 		};
@@ -39,8 +39,8 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				docs/updates/WAVE3_PLAN.md,
-				docs/updates/WAVE3_SUMMARY.md,
 				Info.plist,
+				Models/WAVE3_SUMMARY.md,
 			);
 			target = 8AD8CD6F2F94DC18007143C5 /* AnimenzPlayer */;
 		};
@@ -412,7 +412,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnimenzPlayer/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -459,7 +459,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnimenzPlayer/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

@@ -81,6 +81,9 @@ final class PlayerViewModel: ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
     private var positionWriteThrottle: Int = -1
+    private var playbackTask: Task<Void, Never>?
+    private var playbackRequest = 0
+    private var shouldAutoplay = false
 
     // MARK: - Init
 
@@ -147,23 +150,43 @@ final class PlayerViewModel: ObservableObject {
         play(track, inScope: .all)
     }
 
-    func togglePlayPause() {
-        if engine.isPlaying {
-            engine.pause()
+    func togglePlayPause(source: String = "interface") {
+        logContext("intent.toggle", ["source": source])
+        if shouldAutoplay || engine.isPlaying {
+            pausePlayback()
+        } else {
+            requestPlay()
+        }
+    }
+
+    private func pausePlayback() {
+        shouldAutoplay = false
+        engine.pause()
+        isPlaying = false
+    }
+
+    private func requestPlay() {
+        shouldAutoplay = true
+        if playbackTask != nil {
+            isPlaying = true // The load may finish, but only this intent can start it.
         } else if currentTrack != nil {
             engine.play()
         } else if let first = queue.current ?? tracks.first {
             _ = queue.jump(to: first)
-            Task { await loadAndPlay(first, autoStart: true) }
+            startPlayback(first)
+        } else {
+            shouldAutoplay = false
         }
     }
 
-    func next() {
+    func next(source: String = "interface") {
+        logContext("intent.next", ["source": source])
         guard let track = queue.advance() else { return }
-        Task { await loadAndPlay(track, autoStart: true) }
+        startPlayback(track)
     }
 
-    func previous() {
+    func previous(source: String = "interface") {
+        logContext("intent.previous", ["source": source])
         // >3s in: restart current track instead of going back — matches
         // iOS Music and the original app's behavior.
         if progress > 3 {
@@ -172,10 +195,11 @@ final class PlayerViewModel: ObservableObject {
             return
         }
         guard let track = queue.retreat() else { return }
-        Task { await loadAndPlay(track, autoStart: true) }
+        startPlayback(track)
     }
 
-    func seek(to time: Double) {
+    func seek(to time: Double, source: String = "interface") {
+        logContext("intent.seek", ["source": source, "target": String(time)])
         progressModel.progress = time           // was: progress = time
         Task { await engine.seek(to: time) }
     }
@@ -215,10 +239,12 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func startSleepTimer(_ mode: SleepTimer.Mode) {
+        logContext("sleep_timer.start", ["mode": String(describing: mode)])
         sleepTimer.start(mode)
     }
 
     func cancelSleepTimer() {
+        logContext("sleep_timer.cancel")
         sleepTimer.stop()
     }
 
@@ -230,6 +256,7 @@ final class PlayerViewModel: ObservableObject {
     /// If `scope`'s track list is empty or doesn't contain `track`,
     /// surfaces `.noTracksAvailable` and leaves the queue untouched.
     func play(_ track: Track, inScope newScope: PlaybackScope) {
+        logContext("intent.select_track", ["source": "interface", "targetTrack": PlaybackDiagnostics.trackID(track.url)])
         let scopeTracks = tracksForScope(newScope)
         guard !scopeTracks.isEmpty, scopeTracks.contains(track) else {
             currentError = .noTracksAvailable
@@ -246,7 +273,7 @@ final class PlayerViewModel: ObservableObject {
             currentError = .noTracksAvailable
             return
         }
-        Task { await loadAndPlay(track, autoStart: true) }
+        startPlayback(track)
     }
 
     /// Reset scope to `.all`, preserving the currently-playing track.
@@ -281,12 +308,15 @@ final class PlayerViewModel: ObservableObject {
             self?.duration = dur
         }
         engine.onPlayingChange = { [weak self] playing in
-            self?.isPlaying = playing
+            guard let self else { return }
+            if self.playbackTask == nil { self.shouldAutoplay = playing }
+            self.isPlaying = playing || (self.playbackTask != nil && self.shouldAutoplay)
         }
         engine.onFinish = { [weak self] in
             self?.next()
         }
         engine.onError = { [weak self] err in
+            self?.logContext("coordinator.error", ["type": Self.errorKind(err)])
             self?.currentError = err
         }
     }
@@ -318,13 +348,14 @@ final class PlayerViewModel: ObservableObject {
         // etc.) into the existing intents.
         nowPlaying.onCommand = { [weak self] intent in
             guard let self else { return }
+            self.logContext("intent.remote", ["command": String(describing: intent)])
             switch intent {
-            case .play:        self.engine.play()
-            case .pause:       self.engine.pause()
-            case .toggle:      self.togglePlayPause()
-            case .next:        self.next()
-            case .previous:    self.previous()
-            case .seek(let t): self.seek(to: t)
+            case .play:        self.requestPlay()
+            case .pause:       self.pausePlayback()
+            case .toggle:      self.togglePlayPause(source: "remote")
+            case .next:        self.next(source: "remote")
+            case .previous:    self.previous(source: "remote")
+            case .seek(let t): self.seek(to: t, source: "remote")
             }
         }
 
@@ -349,7 +380,8 @@ final class PlayerViewModel: ObservableObject {
 
         // When the sleep timer expires, pause playback and notify haptically.
         sleepTimer.onExpire = { [weak self] in
-            self?.engine.pause()
+            self?.logContext("sleep_timer.expired")
+            self?.pausePlayback()
             Haptics.play(.warning)
         }
 
@@ -418,6 +450,7 @@ final class PlayerViewModel: ObservableObject {
     /// "end of track", we don't start the next one even if repeat mode would
     /// normally advance.
     private func handleTrackFinished() {
+        logContext("queue.track_finished")
         let wasEndOfTrackTimer: Bool
         if case .endOfTrack = sleepTimer.mode { wasEndOfTrackTimer = true }
         else { wasEndOfTrackTimer = false }
@@ -434,11 +467,13 @@ final class PlayerViewModel: ObservableObject {
         let outcome = queue.advanceForFinish(repeatMode: repeatMode)
         switch outcome {
         case .stop:
-            engine.pause()
+            logContext("queue.stop_at_end")
+            pausePlayback()
             // Leave `currentTrack` where it is so the player bar persists
             // with the "paused at the end" state.
         case .play(let track):
-            Task { await self.loadAndPlay(track, autoStart: true) }
+            logContext("queue.autoplay", ["targetTrack": PlaybackDiagnostics.trackID(track.url)])
+            startPlayback(track)
         }
     }
 
@@ -509,16 +544,26 @@ final class PlayerViewModel: ObservableObject {
         queue.jump(to: track)
         let position = state.lastPosition
 
-        Task { [weak self, engine] in
+        playbackRequest &+= 1
+        let revision = playbackRequest
+        playbackTask = Task { [weak self, engine] in
+            defer { if self?.playbackRequest == revision { self?.playbackTask = nil } }
+            let request = UUID().uuidString
+            self?.logContext("restore.started", ["request": request, "targetTrack": PlaybackDiagnostics.trackID(track.url), "position": String(position)])
             do {
                 try await engine.load(url: track.url)
+                guard !Task.isCancelled, self?.playbackRequest == revision else { return }
                 await engine.seek(to: position)
+                guard !Task.isCancelled, self?.playbackRequest == revision else { return }
                 await MainActor.run {
                     guard let self else { return }
                     self.currentTrack = track
                     self.progress = position
+                    if self.shouldAutoplay { engine.play() }
+                    self.logContext("restore.completed", ["request": request])
                 }
             } catch {
+                self?.logContext("restore.failed", ["request": request].merging(PlaybackDiagnostics.errorFields(error)) { _, new in new })
                 // Restore is best-effort. Silent failure is acceptable.
             }
         }
@@ -559,12 +604,60 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Diagnostics
+
+    private static func errorKind(_ error: PlayerError) -> String {
+        switch error {
+        case .loadFailed: return "loadFailed"
+        case .playbackFailed: return "playbackFailed"
+        case .noTracksAvailable: return "noTracksAvailable"
+        }
+    }
+
+    private func logContext(_ event: String, _ extra: [String: String] = [:]) {
+        PlaybackDiagnostics.record(event, [
+            "displayedTrack": PlaybackDiagnostics.trackID(currentTrack?.url),
+            "queueTrack": PlaybackDiagnostics.trackID(queue.current?.url),
+            "queuePosition": String(queue.position), "queueCount": String(queue.count),
+            "repeatMode": String(describing: repeatMode), "shuffled": String(isShuffled),
+            "reportedPlaying": String(isPlaying), "position": String(progress),
+            "sleepTimer": String(describing: sleepTimer.mode)
+        ].merging(extra) { _, new in new })
+    }
+
+    #if os(macOS)
+    func exportDebugLog() {
+        logContext("export.requested")
+        engine.captureDiagnostics()
+        MacPlaybackDiagnostics.shared.exportLog()
+    }
+    #endif
+
     // MARK: - Playback helper
 
-    private func loadAndPlay(_ track: Track, autoStart: Bool) async {
+    private func startPlayback(_ track: Track) {
+        playbackRequest &+= 1
+        let revision = playbackRequest
+        playbackTask?.cancel()
+        engine.pause() // Cancel recovery before the replacement load starts.
+        shouldAutoplay = true
+        isPlaying = true
+        playbackTask = Task { [weak self] in
+            await self?.loadAndPlay(track, revision: revision)
+        }
+    }
+
+    private func loadAndPlay(_ track: Track, revision: Int) async {
+        defer { if playbackRequest == revision { playbackTask = nil } }
+        guard revision == playbackRequest, !Task.isCancelled else { return }
+        let request = UUID().uuidString
+        let context = ["request": request, "targetTrack": PlaybackDiagnostics.trackID(track.url), "autoStart": String(shouldAutoplay)]
+        logContext("coordinator.load_started", context)
         do {
             try await engine.load(url: track.url)
-            if autoStart { engine.play() }
+            guard revision == playbackRequest, !Task.isCancelled else { return }
+            logContext("coordinator.load_returned", context)
+            if shouldAutoplay { engine.play() }
             currentTrack = track
             progress = 0
             persistence.update {
@@ -573,9 +666,20 @@ final class PlayerViewModel: ObservableObject {
             }
             // Wave 2: record this in the recently-played list.
             recordPlay(track)
+            logContext("coordinator.load_committed", context)
+        } catch is CancellationError {
+            logContext("coordinator.load_cancelled", context)
         } catch let error as PlayerError {
+            guard revision == playbackRequest else { return }
+            shouldAutoplay = false
+            isPlaying = false
+            logContext("coordinator.load_failed", context.merging(["type": Self.errorKind(error)]) { _, new in new })
             currentError = error
         } catch {
+            guard revision == playbackRequest else { return }
+            shouldAutoplay = false
+            isPlaying = false
+            logContext("coordinator.load_failed", context.merging(PlaybackDiagnostics.errorFields(error)) { _, new in new })
             currentError = .loadFailed(url: track.url, error: error)
         }
     }

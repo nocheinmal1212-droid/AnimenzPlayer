@@ -8,14 +8,15 @@ final class PlayerViewModelTests: XCTestCase {
 
     private func makeViewModel(
         tracks: [Track] = TestTrack.library(count: 3),
-        engine: MockPlaybackEngine = MockPlaybackEngine(),
-        initialState: PersistenceStore.State = .init()
+        engine: MockPlaybackEngine? = nil,
+        initialState: PersistenceStore.State? = nil
     ) -> (PlayerViewModel, MockPlaybackEngine, LibraryStore, PersistenceStore) {
+        let engine = engine ?? MockPlaybackEngine()
         let library = LibraryStore(autoload: false)
         library.setTracks(tracks)
         let persistence = PersistenceStore(fileURL: nil)
         persistence.update { state in
-            state = initialState
+            state = initialState ?? .init()
         }
         let vm = PlayerViewModel(library: library, engine: engine, persistence: persistence)
         return (vm, engine, library, persistence)
@@ -69,8 +70,40 @@ final class PlayerViewModelTests: XCTestCase {
         vm.play(vm.tracks[0])
         await drainMainActor()
 
+        let before = engine.pauseCallCount
         vm.togglePlayPause()
-        XCTAssertEqual(engine.pauseCallCount, 1)
+        XCTAssertEqual(engine.pauseCallCount, before + 1)
+    }
+
+    func testPauseWhileLoadingPreventsLateAutoplay() async {
+        let (vm, engine, _, _) = makeViewModel()
+        var finish: CheckedContinuation<Void, Never>?
+        engine.loadSuspension = { _ in await withCheckedContinuation { finish = $0 } }
+        vm.play(vm.tracks[0])
+        while finish == nil { await Task.yield() }
+        vm.togglePlayPause()
+        finish?.resume()
+        await drainMainActor()
+        XCTAssertEqual(engine.playCallCount, 0)
+        XCTAssertFalse(vm.isPlaying)
+        XCTAssertEqual(vm.currentTrack, vm.tracks[0])
+    }
+
+    func testOlderLoadCannotCommitAfterNewerSelection() async {
+        let (vm, engine, _, _) = makeViewModel()
+        var pending: [URL: CheckedContinuation<Void, Never>] = [:]
+        engine.loadSuspension = { url in await withCheckedContinuation { pending[url] = $0 } }
+        let a = vm.tracks[0], b = vm.tracks[1]
+        vm.play(a)
+        while pending[a.url] == nil { await Task.yield() }
+        vm.play(b)
+        while pending[b.url] == nil { await Task.yield() }
+        pending[b.url]?.resume()
+        await drainMainActor()
+        pending[a.url]?.resume()
+        await drainMainActor()
+        XCTAssertEqual(vm.currentTrack, b)
+        XCTAssertEqual(engine.playCallCount, 1)
     }
 
     // MARK: - Navigation
@@ -80,7 +113,7 @@ final class PlayerViewModelTests: XCTestCase {
         let tracks = vm.tracks
         vm.play(tracks[0])
         await drainMainActor()
-        engine.playCallCount = 0
+        engine.resetPlayCallCount()
 
         vm.next()
         await drainMainActor()
@@ -132,6 +165,7 @@ final class PlayerViewModelTests: XCTestCase {
 
     func testFinishOnLastTrackWrapsToFirst() async {
         let (vm, engine, _, _) = makeViewModel()
+        vm.repeatMode = .all
         let tracks = vm.tracks
         vm.play(tracks.last!)
         await drainMainActor()
@@ -220,7 +254,7 @@ final class PlayerViewModelTests: XCTestCase {
 
         vm.play(subset[0], inScope: scope)
         await drainMainActor()
-        engine.playCallCount = 0
+        engine.resetPlayCallCount()
 
         vm.next()
         await drainMainActor()

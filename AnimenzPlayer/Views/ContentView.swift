@@ -143,6 +143,7 @@ struct ContentView: View {
         }
         .animation(.spring(duration: 0.3), value: player.currentError?.id)
         .onChange(of: scenePhase) { _, newPhase in
+            PlaybackDiagnostics.record("scene.changed", ["phase": String(describing: newPhase)])
             if newPhase == .background || newPhase == .inactive {
                 player.flushPendingState()
             }

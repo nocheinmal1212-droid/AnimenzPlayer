@@ -18,6 +18,7 @@ final class MockPlaybackEngine: PlaybackEngine {
 
     // Configurable failure modes.
     var loadError: Error?
+    var loadSuspension: ((URL) async throws -> Void)?
     var simulatedDuration: Double = 180
 
     // Callbacks
@@ -31,6 +32,7 @@ final class MockPlaybackEngine: PlaybackEngine {
 
     func load(url: URL) async throws {
         loadedURLs.append(url)
+        try await loadSuspension?(url)
         if let loadError {
             throw loadError
         }
@@ -67,6 +69,8 @@ final class MockPlaybackEngine: PlaybackEngine {
     }
 
     // MARK: Test hooks
+
+    func resetPlayCallCount() { playCallCount = 0 }
 
     func simulateFinish() {
         onFinish?()

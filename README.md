@@ -322,6 +322,55 @@ The suite is designed to be fast — all tests complete in well under a second b
 
 ## Troubleshooting
 
+### macOS: playback recovery and sleep
+
+Playback failures, including failed-to-finish notifications whose item status stays
+“ready,” now trigger bounded recovery while playback is still requested. There are
+at most three attempts per Play request or track, with 1-, 2-, and 4-second delays
+and an 8-second progress timeout for each attempt. The first attempt reuses a ready
+player; subsequent attempts rebuild the player and restore the track position.
+Actual media-time advancement confirms recovery. Exhaustion stops retrying and
+shows the playback error; pressing Play starts a fresh attempt budget.
+
+System sleep suspends playback and retries. Waking resumes recovery only when
+playback is still requested. Pause (including media controls and sleep-timer
+expiration), Stop, or selecting another track invalidates pending retries and seek
+completions. A pending track load cannot override a later Pause. The Pause control
+remains available during recovery.
+
+A paired macOS activity assertion prevents idle system sleep while playing or
+attempting recovery. It is released on pause, system sleep, retry backoff, exhaustion,
+and teardown. Display sleep and explicit system sleep remain available. Recovery
+and assertion changes are included in exported diagnostics.
+
+### macOS: export playback diagnostics
+
+The macOS app records playback diagnostics automatically in both Debug and Release builds.
+If playback starts pausing or restarting unexpectedly, note the approximate time and choose
+**Playback → Export Debug Log…**. Save the text file and include it with the bug report.
+You can restart the app first if necessary: export includes retained events from earlier launches.
+Canceling the save panel leaves the logs untouched, and exporting does not stop playback.
+
+The log records interface/menu/media-control commands, automatic queue advancement,
+sleep-timer actions, load and seek requests, actual player state, waiting reasons,
+playback errors, macOS sleep/wake, and default audio-output changes. A small status
+sample runs every 15 seconds while playback is requested; it reports lack of progress
+without trying to restart audio. Timestamps, process-uptime values, session IDs, and
+request IDs make it possible to distinguish app commands from player state changes.
+
+Logs stay on the device in the app's Application Support directory under
+`<bundle-id>/PlaybackDiagnostics/`. A sandboxed build normally places this inside
+`~/Library/Containers/<bundle-id>/Data/Library/Application Support/`.
+Three rotating files retain up to approximately 6 MiB total; oldest events are replaced
+when the limit is reached. Disk writes run on a utility queue, with a bounded pending
+event count. Export reports write failures, and subsequent accepted events report
+any events dropped during a logging backlog. Logging continues after export.
+
+Exports contain hashed track filenames, not track titles, full file paths, artwork,
+or audio. Error logging keeps domains/codes rather than raw error descriptions.
+Nothing is uploaded automatically. The instrumentation is passive and does not
+change playback or implement automatic recovery.
+
 ### `Unable to find module dependency: 'XCTest'`
 
 Target membership. See [Verifying target membership](#verifying-target-membership) above. Every file that imports `XCTest` must be a member of a test target and **not** the app target.
